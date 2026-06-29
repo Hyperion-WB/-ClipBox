@@ -56,6 +56,18 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || 'v0.1.0' }}"
+          BODY=$(node scripts/release-notes.mjs "$TAG")
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -63,15 +75,7 @@ jobs:
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', '0.1.0') }}
           releaseName: ClipBox ${{ github.ref_name }}
-          releaseBody: |
-            ## ClipBox ${{ github.ref_name }}
-
-            | 平台 | 安装包 |
-            |------|--------|
-            | Windows | `.exe` (NSIS) / `.msi` |
-            | Linux | `.deb` / AppImage |
-
-            详见 Assets 列表。
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}

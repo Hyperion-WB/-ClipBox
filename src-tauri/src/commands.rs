@@ -72,13 +72,24 @@ pub fn clear_history(state: State<'_, AppState>, keep_pinned: bool) -> Result<()
 }
 
 #[tauri::command]
-pub fn paste_item(
+pub async fn paste_item(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: i64,
     plain_text_only: bool,
 ) -> Result<(), String> {
     let simulate = state.db.get_settings().simulate_paste;
-    paste_clip(&state.monitor, &state.db, id, plain_text_only, simulate)
+    if simulate {
+        hide_panel(app.clone()).await?;
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
+    paste_clip(&state.monitor, &state.db, id, plain_text_only, simulate)?;
+
+    if !simulate {
+        hide_panel(app).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -135,9 +146,83 @@ pub fn reorder_snippets(state: State<'_, AppState>, ids: Vec<i64>) -> Result<(),
 }
 
 #[tauri::command]
-pub fn paste_snippet_cmd(state: State<'_, AppState>, content: String) -> Result<(), String> {
+pub async fn paste_text(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<(), String> {
+    if text.len() > 512_000 {
+        return Err("内容过长".to_string());
+    }
     let simulate = state.db.get_settings().simulate_paste;
-    paste_snippet(&state.monitor, &content, simulate)
+    if simulate {
+        hide_panel(app.clone()).await?;
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
+    paste_snippet(&state.monitor, &text, simulate)?;
+
+    if !simulate {
+        hide_panel(app).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("链接为空".to_string());
+    }
+    let open_url = if url.starts_with("http://") || url.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    };
+    app.opener()
+        .open_url(&open_url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_app_icon(state: State<'_, AppState>, app_name: String) -> Result<Option<String>, String> {
+    Ok(crate::app_icon::get_icon_data_url(state.db.data_dir(), &app_name))
+}
+
+#[tauri::command]
+pub async fn open_path(app: AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("路径为空".to_string());
+    }
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn paste_snippet_cmd(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    content: String,
+) -> Result<(), String> {
+    if content.len() > 512_000 {
+        return Err("片段内容过长".to_string());
+    }
+    let simulate = state.db.get_settings().simulate_paste;
+    if simulate {
+        hide_panel(app.clone()).await?;
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
+    paste_snippet(&state.monitor, &content, simulate)?;
+
+    if !simulate {
+        hide_panel(app).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -245,6 +330,7 @@ pub async fn show_panel(app: AppHandle) -> Result<(), String> {
 pub async fn hide_panel(app: AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<AppState>() {
         state.monitor.set_panel_open(false);
+        save_panel_position(&app, &state.db);
     }
     if let Some(window) = app.get_webview_window("main") {
         window.hide().map_err(|e| e.to_string())?;
@@ -276,10 +362,39 @@ pub fn spawn_cleanup_loop(db: Arc<Database>) {
     });
 }
 
+fn save_panel_position(app: &AppHandle, db: &Database) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if let Ok(pos) = window.outer_position() {
+        let _ = db.set_setting("panel_pos_x", &pos.x.to_string());
+        let _ = db.set_setting("panel_pos_y", &pos.y.to_string());
+    }
+}
+
 fn position_panel(app: &AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
+
+    if let Some(state) = app.try_state::<AppState>() {
+        if let (Some(xs), Some(ys)) = (
+            state.db.get_setting("panel_pos_x"),
+            state.db.get_setting("panel_pos_y"),
+        ) {
+            if let (Ok(x), Ok(y)) = (xs.parse::<f64>(), ys.parse::<f64>()) {
+                if x >= 0.0 && y >= 0.0 {
+                    window
+                        .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                            x: x as i32,
+                            y: y as i32,
+                        }))
+                        .map_err(|e| e.to_string())?;
+                    return Ok(());
+                }
+            }
+        }
+    }
 
     if let Ok(Some(monitor)) = window.current_monitor() {
         let screen = monitor.size();

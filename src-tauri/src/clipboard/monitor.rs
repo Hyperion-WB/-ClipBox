@@ -1,7 +1,7 @@
 use crate::app_filter::should_record;
 use crate::db::Database;
 use crate::models::ContentType;
-use crate::source_app::{detect_file_paths, foreground_app_name};
+use crate::source_app::{detect_file_paths, resolve_source_app};
 use arboard::Clipboard;
 use image::imageops::FilterType;
 use image::ImageEncoder;
@@ -150,6 +150,18 @@ fn clipboard_changed(last: u32) -> bool {
     current != last
 }
 
+fn cache_source_icon(db: &Database, source: &Option<String>) {
+    if let Some(name) = source {
+        if let Some(exe) = crate::source_app::foreground_process_exe() {
+            crate::app_icon::ensure_app_icon(db.data_dir(), name, &exe);
+        }
+    }
+}
+
+fn record_source() -> Option<String> {
+    resolve_source_app()
+}
+
 fn poll_clipboard(
     clipboard: &mut Clipboard,
     db: &Database,
@@ -168,13 +180,18 @@ fn poll_clipboard(
 
     if let Ok(text) = clipboard.get_text() {
         if !text.is_empty() {
-            let source = foreground_app_name();
+            let source = record_source();
             if !should_record(&db.get_settings(), source.as_deref()) {
                 return Ok(None);
             }
             if let Some(path) = detect_file_paths(&text) {
                 let hash = content_hash("file", &path);
-                if dedupe && is_duplicate(last_hash, &hash) {
+                if dedupe {
+                    if let Some(id) = db.touch_existing_clip(&ContentType::File, &path)? {
+                        *last_hash.lock() = Some(hash);
+                        return Ok(Some(id));
+                    }
+                } else if is_duplicate(last_hash, &hash) {
                     return Ok(None);
                 }
                 let id = db.insert_clip(
@@ -184,23 +201,30 @@ fn poll_clipboard(
                     None,
                     source.as_deref(),
                 )?;
+                cache_source_icon(db, &source);
                 *last_hash.lock() = Some(hash);
                 return Ok(Some(id));
             }
 
             let content_type = detect_content_type(&text);
             let hash = content_hash("text", &text);
-            if dedupe && is_duplicate(last_hash, &hash) {
+            if dedupe {
+                if let Some(id) = db.touch_existing_clip(&content_type, &text)? {
+                    *last_hash.lock() = Some(hash);
+                    return Ok(Some(id));
+                }
+            } else if is_duplicate(last_hash, &hash) {
                 return Ok(None);
             }
             let id = db.insert_clip(content_type, &text, None, None, source.as_deref())?;
+            cache_source_icon(db, &source);
             *last_hash.lock() = Some(hash);
             return Ok(Some(id));
         }
     }
 
     if let Ok(img) = clipboard.get_image() {
-        let source = foreground_app_name();
+        let source = record_source();
         if !should_record(&db.get_settings(), source.as_deref()) {
             return Ok(None);
         }
@@ -232,6 +256,7 @@ fn poll_clipboard(
             Some(&thumb_path.to_string_lossy()),
             source.as_deref(),
         )?;
+        cache_source_icon(db, &source);
         *last_hash.lock() = Some(hash);
         return Ok(Some(id));
     }

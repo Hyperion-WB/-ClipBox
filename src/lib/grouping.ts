@@ -1,12 +1,23 @@
 import type { ClipItem } from "./types";
+import type { Highlight } from "./extractHighlights";
+import { extractHighlights } from "./extractHighlights";
+import { clipRowHeight as chipRowHeight } from "./chipLayout";
 import { timeBucketLabel, unknownSourceLabel, pinnedSectionLabel } from "$lib/i18n.svelte";
 
 export type ListRow =
   | { kind: "header"; id: string; title: string }
-  | { kind: "clip"; id: number; item: ClipItem; clipIndex: number };
+  | {
+      kind: "clip";
+      id: number;
+      item: ClipItem;
+      clipIndex: number;
+      highlights: Highlight[];
+      rowHeight: number;
+    };
 
 export const HEADER_HEIGHT = 28;
 export const CLIP_HEIGHT = 44;
+export const CLIP_HEIGHT_EXPANDED = 72;
 
 export interface ListLayout {
   rows: ListRow[];
@@ -18,6 +29,28 @@ export interface ListLayout {
 interface GroupOptions {
   groupByTime: boolean;
   groupBySource: boolean;
+}
+
+const highlightCache = new Map<number, Highlight[]>();
+const HIGHLIGHT_CACHE_MAX = 80;
+
+export function clearHighlightCache() {
+  highlightCache.clear();
+}
+
+function cachedHighlights(item: ClipItem): Highlight[] {
+  const hit = highlightCache.get(item.id);
+  if (hit) return hit;
+  const highlights =
+    item.content_type === "text" || item.content_type === "html" || item.content_type === "file"
+      ? extractHighlights(item.content_text, item.content_type)
+      : [];
+  if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+    const first = highlightCache.keys().next().value;
+    if (first !== undefined) highlightCache.delete(first);
+  }
+  highlightCache.set(item.id, highlights);
+  return highlights;
 }
 
 function startOfDay(d: Date): Date {
@@ -54,8 +87,10 @@ function pushClip(
   item: ClipItem,
   clipIndex: number,
 ) {
-  rows.push({ kind: "clip", id: item.id, item, clipIndex });
-  heights.push(CLIP_HEIGHT);
+  const highlights = cachedHighlights(item);
+  const rowHeight = chipRowHeight(highlights);
+  rows.push({ kind: "clip", id: item.id, item, clipIndex, highlights, rowHeight });
+  heights.push(rowHeight);
 }
 
 function groupBySourceOnly(

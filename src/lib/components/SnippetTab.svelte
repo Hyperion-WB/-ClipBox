@@ -74,7 +74,10 @@
 
 <div class="snippet-tab">
   <div class="header">
-    <span class="title">{t("snippets.title")}</span>
+    <div class="header-text">
+      <span class="title">{t("snippets.title")}</span>
+      <span class="hint">{t("snippets.clickHint")}</span>
+    </div>
     <button type="button" class="add-btn" onclick={() => (showAdd = !showAdd)}>
       {showAdd ? t("snippets.cancel") : t("snippets.add")}
     </button>
@@ -106,15 +109,17 @@
           class:drop-target={dropIndex === i}
           role="button"
           tabindex="0"
-          draggable="true"
-          ondragstart={() => onDragStart(i)}
           ondragover={(e) => onDragOver(e, i)}
           ondrop={onDrop}
-          onclick={() => onSelect(i)}
-          ondblclick={() => onPaste(snippet)}
+          onclick={() => onPaste(snippet)}
           onkeydown={(e) => e.key === "Enter" && onPaste(snippet)}
         >
-          <span class="drag-handle">⋮⋮</span>
+          <span
+            class="drag-handle"
+            draggable="true"
+            ondragstart={() => onDragStart(i)}
+            onclick={(e) => e.stopPropagation()}
+          >⋮⋮</span>
           <div class="snippet-info">
             <span class="snippet-title">{snippet.title}</span>
             <span class="snippet-preview">{snippet.content}</span>
@@ -133,8 +138,10 @@
 
 <style>
   .snippet-tab { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
-  .header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 12px; border-bottom: 1px solid var(--border); gap: 8px; }
+  .header-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .title { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+  .hint { font-size: 10px; color: var(--text-muted); opacity: 0.85; }
   .add-btn { border: none; background: var(--accent); color: white; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
   .add-form, .edit-form { padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border); }
   input, textarea { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; background: var(--surface); color: var(--text); resize: none; font-family: inherit; }

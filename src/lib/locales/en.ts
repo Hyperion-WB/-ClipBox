@@ -38,6 +38,14 @@ export const en: Messages = {
     unpin: "Unpin",
     delete: "Delete",
     saveImageTitle: "Save image",
+    openPath: "Open path",
+    formatPaste: "Paste formatted",
+  },
+  chip: {
+    formatPasteHint: "Click to format and paste",
+    showMore: "Show {n} more",
+    collapse: "Collapse",
+    moreGroup: "More keywords",
   },
   snippets: {
     title: "Snippets · drag to sort",
@@ -49,6 +57,7 @@ export const en: Messages = {
     titlePlaceholder: "Title (e.g. Email)",
     contentPlaceholder: "Content",
     empty: "No snippets yet — click Add to create one",
+    clickHint: "Click to paste into the active field",
   },
   hotkey: {
     recording: "Press a shortcut…",
@@ -107,6 +116,7 @@ export const en: Messages = {
     pollInterval: "Poll interval (ms)",
     releaseMemory: "Release memory on close",
     dedupe: "Deduplicate entries",
+    dedupeHint: "Skip duplicate content; re-copying moves the existing entry to top",
     appFilterMode: "Source app filter",
     filterOff: "Off",
     filterBlacklist: "Blacklist",

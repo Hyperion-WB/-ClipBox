@@ -33,8 +33,8 @@
 <style>
   .categories {
     display: flex;
-    gap: 6px;
-    padding: 8px 12px;
+    gap: 4px;
+    padding: 4px 10px 6px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }

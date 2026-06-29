@@ -53,6 +53,15 @@ export const api = {
   pasteSnippet: (content: string) =>
     invoke<void>("paste_snippet_cmd", { content }),
 
+  pasteText: (text: string) => invoke<void>("paste_text", { text }),
+
+  openPath: (path: string) => invoke<void>("open_path", { path }),
+
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
+
+  getAppIcon: (appName: string) =>
+    invoke<string | null>("get_app_icon", { appName }),
+
   getSettings: () => invoke<AppSettings>("get_settings"),
 
   saveSettings: (settings: AppSettings) =>

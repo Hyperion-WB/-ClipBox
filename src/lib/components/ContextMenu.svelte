@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ClipItem, ContextMenuAction } from "$lib/types";
+  import { itemHasFormatAction } from "$lib/formatContent";
   import { t } from "$lib/i18n.svelte";
 
   interface Props {
@@ -19,7 +20,13 @@
     if (item.content_type === "html") {
       items.push({ action: "pastePlain", label: t("menu.pastePlain") });
     }
+    if (itemHasFormatAction(item.content_text, item.content_type)) {
+      items.push({ action: "formatPaste", label: t("menu.formatPaste") });
+    }
     items.push({ action: "copy", label: t("menu.copy") });
+    if (item.content_type === "file") {
+      items.push({ action: "openPath", label: t("menu.openPath") });
+    }
     if (item.content_type === "image") {
       items.push({ action: "saveImage", label: t("menu.saveImage") });
     }

@@ -23,7 +23,7 @@ pub fn paste_clip(
     let result = write_clipboard(&clip, plain_text_only, db);
 
     if result.is_ok() && simulate_paste {
-        thread::sleep(Duration::from_millis(80));
+        thread::sleep(Duration::from_millis(100));
         simulate_ctrl_v();
     }
 
@@ -57,7 +57,7 @@ pub fn paste_snippet(
     clipboard.set_text(content).map_err(|e| e.to_string())?;
 
     if simulate_paste {
-        thread::sleep(Duration::from_millis(80));
+        thread::sleep(Duration::from_millis(100));
         simulate_ctrl_v();
     }
 

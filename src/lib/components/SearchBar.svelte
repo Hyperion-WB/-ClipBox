@@ -32,8 +32,8 @@
   .search-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 6px;
+    padding: 5px 10px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }

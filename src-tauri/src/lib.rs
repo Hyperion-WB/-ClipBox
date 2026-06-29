@@ -1,4 +1,5 @@
 mod app_filter;
+mod app_icon;
 mod backup;
 mod clipboard;
 mod commands;
@@ -146,6 +147,10 @@ pub fn run() {
             commands::delete_snippet,
             commands::reorder_snippets,
             commands::paste_snippet_cmd,
+            commands::paste_text,
+            commands::open_path,
+            commands::open_url,
+            commands::get_app_icon,
             commands::get_settings,
             commands::save_settings,
             commands::migrate_storage_path,

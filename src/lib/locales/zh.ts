@@ -36,6 +36,14 @@ export const zh = {
     unpin: "取消置顶",
     delete: "删除",
     saveImageTitle: "保存图片",
+    openPath: "打开路径",
+    formatPaste: "格式化后粘贴",
+  },
+  chip: {
+    formatPasteHint: "点击格式化后粘贴",
+    showMore: "展开 {n} 个关键字",
+    collapse: "收起",
+    moreGroup: "更多关键字",
   },
   snippets: {
     title: "固定片段 · 拖拽排序",
@@ -47,6 +55,7 @@ export const zh = {
     titlePlaceholder: "标题（如：邮箱）",
     contentPlaceholder: "内容",
     empty: "暂无片段，点击「添加」创建常用文本",
+    clickHint: "单击粘贴到当前输入框",
   },
   hotkey: {
     recording: "按下快捷键…",
@@ -105,6 +114,7 @@ export const zh = {
     pollInterval: "检测间隔 (ms)",
     releaseMemory: "关闭面板时释放内存",
     dedupe: "自动去重",
+    dedupeHint: "相同内容不重复入库，再次复制会置顶已有条目",
     appFilterMode: "来源应用过滤",
     filterOff: "关闭",
     filterBlacklist: "黑名单",

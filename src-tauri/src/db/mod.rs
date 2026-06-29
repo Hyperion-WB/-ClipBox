@@ -18,6 +18,12 @@ impl Database {
         std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
         let db_path = data_dir.join("clipbox.db");
         let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA busy_timeout=5000;
+             PRAGMA synchronous=NORMAL;",
+        )
+        .map_err(|e| e.to_string())?;
         schema::init_schema(&conn)?;
         let db = Self {
             conn: Mutex::new(conn),
@@ -274,6 +280,50 @@ impl Database {
         Ok(id)
     }
 
+    /// Find an existing clip with the same type and text; touch it and remove other duplicates.
+    pub fn touch_existing_clip(
+        &self,
+        content_type: &ContentType,
+        content_text: &str,
+    ) -> Result<Option<i64>, String> {
+        let conn = self.conn.lock();
+        let keep_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM clips
+                 WHERE content_type = ?1 AND content_text = ?2
+                 ORDER BY pinned DESC, last_used_at DESC
+                 LIMIT 1",
+                params![content_type.as_str(), content_text],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        let Some(keep_id) = keep_id else {
+            return Ok(None);
+        };
+
+        let dup_ids: Vec<i64> = conn
+            .prepare(
+                "SELECT id FROM clips
+                 WHERE content_type = ?1 AND content_text = ?2 AND id != ?3",
+            )
+            .map_err(|e| e.to_string())?
+            .query_map(params![content_type.as_str(), content_text, keep_id], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        drop(conn);
+
+        for id in dup_ids {
+            let _ = self.delete_clip(id);
+        }
+
+        self.touch_clip(keep_id)?;
+        Ok(Some(keep_id))
+    }
+
     pub fn get_clip_thumbnail_data_url(&self, id: i64) -> Result<Option<String>, String> {
         let conn = self.conn.lock();
         let thumb_path: Option<String> = conn
@@ -335,14 +385,19 @@ impl Database {
         }
 
         if let Some(ref text) = filters.text_query {
-            sql.push_str(
-                " AND (content_text LIKE ? OR id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?))",
-            );
-            params_vec.push(Box::new(format!("%{}%", text)));
-            params_vec.push(Box::new(format!(
-                "{}*",
-                text.replace('"', "\"\"")
-            )));
+            if crate::search::query_has_cjk(text) {
+                sql.push_str(" AND content_text LIKE ?");
+                params_vec.push(Box::new(format!("%{}%", text)));
+            } else {
+                sql.push_str(
+                    " AND (content_text LIKE ? OR id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?))",
+                );
+                params_vec.push(Box::new(format!("%{}%", text)));
+                params_vec.push(Box::new(format!(
+                    "{}*",
+                    text.replace('"', "\"\"")
+                )));
+            }
         }
 
         sql.push_str(" ORDER BY pinned DESC, last_used_at DESC LIMIT 200");
@@ -702,6 +757,12 @@ impl Database {
     }
 
     pub fn create_snippet(&self, title: &str, content: &str) -> Result<Snippet, String> {
+        if title.len() > 200 {
+            return Err("标题过长".to_string());
+        }
+        if content.len() > 512_000 {
+            return Err("片段内容过长".to_string());
+        }
         let now = Utc::now().to_rfc3339();
         let conn = self.conn.lock();
         let max_order: i32 = conn
@@ -725,6 +786,12 @@ impl Database {
     }
 
     pub fn update_snippet(&self, id: i64, title: &str, content: &str) -> Result<(), String> {
+        if title.len() > 200 {
+            return Err("标题过长".to_string());
+        }
+        if content.len() > 512_000 {
+            return Err("片段内容过长".to_string());
+        }
         let conn = self.conn.lock();
         conn.execute(
             "UPDATE snippets SET title = ?1, content = ?2 WHERE id = ?3",

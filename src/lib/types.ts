@@ -63,7 +63,9 @@ export interface HistoryStats {
 export type ContextMenuAction =
   | "paste"
   | "pastePlain"
+  | "formatPaste"
   | "copy"
   | "saveImage"
+  | "openPath"
   | "pin"
   | "delete";

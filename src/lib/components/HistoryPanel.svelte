@@ -6,6 +6,8 @@
 
     buildListLayout,
 
+    clearHighlightCache,
+
     nextClipRowIndex,
 
     rowIndexForClipIndex,
@@ -48,6 +50,12 @@
 
   import { applyTheme, watchSystemTheme } from "$lib/theme";
   import { dragWindow } from "$lib/window";
+  import {
+    formatCode,
+    formatJson,
+    isJsonText,
+  } from "$lib/formatContent";
+  import { clearSourceBadgeCache } from "$lib/sourceBadgeCache";
   import { setLocale, t } from "$lib/i18n.svelte";
   type Tab = "history" | "snippets" | "settings";
 
@@ -91,6 +99,8 @@
 
 
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let clipReloadTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   let lastClickedRow = $state(0);
 
@@ -151,6 +161,8 @@
 
 
   async function loadClips() {
+
+    clearHighlightCache();
 
     clips = await api.listClips(buildQuery() || undefined, category);
 
@@ -263,8 +275,38 @@
 
     await api.pasteItem(item.id, plainTextOnly);
 
-    await api.hidePanel();
+  }
 
+  async function pasteSegment(value: string) {
+    await api.pasteText(value);
+  }
+
+  async function pasteFormatted(item: ClipItem) {
+    try {
+      const text = item.content_text.trim();
+      const formatted = isJsonText(text) ? formatJson(text) : formatCode(text);
+      await api.pasteText(formatted);
+    } catch {
+      await api.pasteText(item.content_text);
+    }
+  }
+
+  async function openPath(path: string) {
+    try {
+      await api.openPath(path.trim());
+    } catch (err) {
+      toast = err instanceof Error ? err.message : String(err);
+      setTimeout(() => (toast = ""), 2500);
+    }
+  }
+
+  async function openUrl(url: string) {
+    try {
+      await api.openUrl(url.trim());
+    } catch (err) {
+      toast = err instanceof Error ? err.message : String(err);
+      setTimeout(() => (toast = ""), 2500);
+    }
   }
 
 
@@ -322,22 +364,29 @@
       case "paste":
 
         await api.pasteItem(item.id, false);
-
-        await api.hidePanel();
-
         break;
 
       case "pastePlain":
 
         await api.pasteItem(item.id, true);
 
-        await api.hidePanel();
+        break;
+
+      case "formatPaste":
+
+        await pasteFormatted(item);
 
         break;
 
       case "copy":
 
         await api.copyItemToClipboard(item.id, item.content_type === "html");
+
+        break;
+
+      case "openPath":
+
+        await openPath(item.content_text);
 
         break;
 
@@ -653,8 +702,6 @@
 
         api.pasteSnippet(s.content);
 
-        api.hidePanel();
-
       }
 
     }
@@ -674,6 +721,10 @@
     selectedIds = new Set();
 
     multiSelectMode = false;
+
+    clearHighlightCache();
+
+    clearSourceBadgeCache();
 
   }
 
@@ -717,9 +768,17 @@
 
         if (panelOpen && activeTab === "history") {
 
-          loadClips();
+          if (clipReloadTimer) clearTimeout(clipReloadTimer);
 
-          loadStats();
+          clipReloadTimer = setTimeout(() => {
+
+            loadClips();
+
+            loadStats();
+
+            clipReloadTimer = 0;
+
+          }, 180);
 
         }
 
@@ -831,9 +890,9 @@
 
       selectedClipId={selectedItem?.id ?? null}
 
-      onPasteClip={async (item) => { await api.pasteItem(item.id, false); await api.hidePanel(); }}
+      onPasteClip={async (item) => { await api.pasteItem(item.id, false); }}
 
-      onPasteSnippet={async (s) => { await api.pasteSnippet(s.content); await api.hidePanel(); }}
+      onPasteSnippet={async (s) => { await api.pasteSnippet(s.content); }}
 
       onClearHistory={clearAllKeepPinned}
 
@@ -880,11 +939,12 @@
   {#if activeTab === "history"}
 
     <div class="history-toolbar" data-tauri-drag-region="false">
-
-      <span class="history-title">{t("history.title")}</span>
-
+      {#if stats}
+        <span class="stats-inline">
+          {t("history.stats", { total: stats.total_clips, pinned: stats.pinned_clips, images: stats.image_count, files: stats.file_count, disk: diskLabel })}
+        </span>
+      {/if}
       <button type="button" class="clear-btn" onclick={clearAllKeepPinned}>{t("history.clearAll")}</button>
-
     </div>
 
 
@@ -913,20 +973,6 @@
 
     <CategoryFilter value={category} onChange={onCategoryChange} />
 
-
-
-    {#if stats}
-
-      <div class="stats-bar">
-
-        {t("history.stats", { total: stats.total_clips, pinned: stats.pinned_clips, images: stats.image_count, files: stats.file_count, disk: diskLabel })}
-
-      </div>
-
-    {/if}
-
-
-
     {#if multiSelectMode}
 
       <div class="batch-bar">
@@ -948,6 +994,8 @@
       <VirtualClipList
 
         layout={listLayout}
+
+        {panelOpen}
 
         selectedRowIndex={selectedRowIndex}
 
@@ -975,6 +1023,17 @@
 
         onPastePlain={(i) => pasteAt(i, true)}
 
+        onPasteSegment={pasteSegment}
+
+        onFormatPaste={async (i) => {
+          const item = clipAtIndex(i);
+          if (item) await pasteFormatted(item);
+        }}
+
+        onOpenPath={openPath}
+
+        onOpenUrl={openUrl}
+
       />
 
     </div>
@@ -989,7 +1048,7 @@
 
       onSelect={(i) => (selectedClipIndex = i)}
 
-      onPaste={async (s) => { await api.pasteSnippet(s.content); await api.hidePanel(); }}
+      onPaste={async (s) => { await api.pasteSnippet(s.content); }}
 
       onCreate={async (title, content) => { await api.createSnippet(title, content); await loadSnippets(); }}
 
@@ -1148,32 +1207,22 @@
 
 
   .history-toolbar {
-
     display: flex;
-
     align-items: center;
-
     justify-content: space-between;
-
-    padding: 6px 12px;
-
-    border-bottom: 1px solid var(--border);
-
+    gap: 8px;
+    padding: 2px 10px 4px;
     flex-shrink: 0;
-
   }
 
-
-
-  .history-title {
-
-    font-size: 13px;
-
-    font-weight: 600;
-
+  .stats-inline {
+    font-size: 10px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
-
-
 
   .clear-btn {
 
@@ -1257,7 +1306,7 @@
 
     background: transparent;
 
-    padding: 10px;
+    padding: 8px 6px;
 
     font-size: 13px;
 
@@ -1292,22 +1341,6 @@
     flex-direction: column;
 
     min-height: 0;
-
-  }
-
-
-
-  .stats-bar {
-
-    padding: 4px 12px;
-
-    font-size: 10px;
-
-    color: var(--text-muted);
-
-    border-bottom: 1px solid var(--border);
-
-    flex-shrink: 0;
 
   }
 

@@ -255,7 +255,7 @@
       <SettingRow label={t("settings.releaseMemory")}>
         {#snippet control()}<Toggle bind:checked={draft.release_memory_on_close} />{/snippet}
       </SettingRow>
-      <SettingRow label={t("settings.dedupe")}>
+      <SettingRow label={t("settings.dedupe")} hint={t("settings.dedupeHint")}>
         {#snippet control()}<Toggle bind:checked={draft.dedupe} />{/snippet}
       </SettingRow>
     </CollapsibleSection>
