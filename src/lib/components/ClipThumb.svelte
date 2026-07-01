@@ -8,10 +8,26 @@
   }
 
   let { clipId, alt = "剪贴板图片", large = false }: Props = $props();
+  let root = $state<HTMLElement | null>(null);
   let src = $state<string | null>(null);
   let loading = $state(false);
+  let visible = $state(false);
 
   $effect(() => {
+    const el = root;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) visible = true;
+      },
+      { rootMargin: "120px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  });
+
+  $effect(() => {
+    if (!visible) return;
     let cancelled = false;
     loading = true;
     api.getClipThumbnail(clipId).then((url) => {
@@ -26,21 +42,27 @@
   });
 </script>
 
-{#if src}
-  <img {src} {alt} class="thumb" class:large loading="lazy" decoding="async" />
-{:else if loading}
-  <span class="thumb-placeholder" class:large>…</span>
-{:else}
-  <span class="thumb-placeholder" class:large>图</span>
-{/if}
+<div class="thumb-wrap" class:large bind:this={root}>
+  {#if src}
+    <img {src} {alt} class="thumb" class:large loading="lazy" decoding="async" />
+  {:else if loading}
+    <span class="thumb-placeholder" class:large>…</span>
+  {:else}
+    <span class="thumb-placeholder" class:large>图</span>
+  {/if}
+</div>
 
 <style>
+  .thumb-wrap {
+    flex-shrink: 0;
+  }
+
   .thumb {
     height: 32px;
     width: 48px;
     object-fit: cover;
     border-radius: 4px;
-    flex-shrink: 0;
+    display: block;
   }
 
   .thumb-placeholder {
@@ -53,7 +75,6 @@
     border-radius: 4px;
     font-size: 11px;
     color: var(--text-muted);
-    flex-shrink: 0;
   }
   .thumb.large {
     height: 120px;

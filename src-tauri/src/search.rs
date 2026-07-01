@@ -96,7 +96,7 @@ pub fn parse_search_query(raw: &str, category: ClipCategory) -> SearchFilters {
             ("weixin", "wechat"),
             ("豆包", "豆包"),
             ("doubao", "豆包"),
-            ("cursor", "cursor"),
+            ("cursor", "Cursor 编辑器"),
             ("notepad", "notepad"),
         ];
         let mut matched_app = false;

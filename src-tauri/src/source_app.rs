@@ -102,7 +102,7 @@ pub fn friendly_process_name(exe: &std::path::Path) -> String {
         "msedge" => "Edge".into(),
         "firefox" => "Firefox".into(),
         "wechat" | "weixin" => "微信".into(),
-        "cursor" => "Cursor".into(),
+        "cursor" => "Cursor 编辑器".into(),
         "code" => "VS Code".into(),
         "doubao" | "doubaoapp" => "豆包".into(),
         "notepad" => "Notepad".into(),

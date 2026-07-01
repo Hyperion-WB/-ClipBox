@@ -6,6 +6,7 @@ use crate::search::{matches_content_tag, parse_search_query, time_range_sql, Sea
 use chrono::{Duration, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub struct Database {
@@ -178,6 +179,11 @@ impl Database {
             image_save_dir: self
                 .get_setting("image_save_dir")
                 .unwrap_or_default(),
+            panel_follow_cursor: self.bool_setting("panel_follow_cursor", true),
+            trash_retention_hours: self
+                .get_setting("trash_retention_hours")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(24),
         }
     }
 
@@ -244,6 +250,14 @@ impl Database {
             &settings.pinned_collapse_threshold.to_string(),
         )?;
         self.set_setting("image_save_dir", &settings.image_save_dir)?;
+        self.set_setting(
+            "panel_follow_cursor",
+            if settings.panel_follow_cursor { "true" } else { "false" },
+        )?;
+        self.set_setting(
+            "trash_retention_hours",
+            &settings.trash_retention_hours.to_string(),
+        )?;
         Ok(())
     }
 
@@ -290,7 +304,7 @@ impl Database {
         let keep_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM clips
-                 WHERE content_type = ?1 AND content_text = ?2
+                 WHERE content_type = ?1 AND content_text = ?2 AND deleted_at IS NULL
                  ORDER BY pinned DESC, last_used_at DESC
                  LIMIT 1",
                 params![content_type.as_str(), content_text],
@@ -306,7 +320,7 @@ impl Database {
         let dup_ids: Vec<i64> = conn
             .prepare(
                 "SELECT id FROM clips
-                 WHERE content_type = ?1 AND content_text = ?2 AND id != ?3",
+                 WHERE content_type = ?1 AND content_text = ?2 AND id != ?3 AND deleted_at IS NULL",
             )
             .map_err(|e| e.to_string())?
             .query_map(params![content_type.as_str(), content_text, keep_id], |row| row.get(0))
@@ -317,7 +331,7 @@ impl Database {
         drop(conn);
 
         for id in dup_ids {
-            let _ = self.delete_clip(id);
+            let _ = self.permanently_delete_clip(id);
         }
 
         self.touch_clip(keep_id)?;
@@ -369,7 +383,7 @@ impl Database {
         let mut sql = format!(
             "SELECT id, content_type, content_text, content_blob IS NOT NULL,
                     thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
-             FROM clips WHERE {category_sql}"
+             FROM clips WHERE ({category_sql}) AND deleted_at IS NULL"
         );
         let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -490,23 +504,36 @@ impl Database {
     pub fn get_history_stats(&self) -> Result<HistoryStats, String> {
         let conn = self.conn.lock();
         let total_clips: i64 = conn
-            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         let pinned_clips: i64 = conn
-            .query_row("SELECT COUNT(*) FROM clips WHERE pinned = 1", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE pinned = 1 AND deleted_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         let image_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM clips WHERE content_type = 'image'",
+                "SELECT COUNT(*) FROM clips WHERE content_type = 'image' AND deleted_at IS NULL",
                 [],
                 |row| row.get(0),
             )
             .unwrap_or(0);
         let file_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM clips WHERE content_type = 'file'",
+                "SELECT COUNT(*) FROM clips WHERE content_type = 'file' AND deleted_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let trash_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL",
                 [],
                 |row| row.get(0),
             )
@@ -518,6 +545,7 @@ impl Database {
             image_count,
             file_count,
             disk_bytes,
+            trash_count,
         })
     }
 
@@ -559,7 +587,7 @@ impl Database {
         conn.query_row(
             "SELECT id, content_type, content_text, content_blob IS NOT NULL,
                     thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
-             FROM clips WHERE id = ?1",
+             FROM clips WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
             row_to_clip,
         )
@@ -583,11 +611,150 @@ impl Database {
     }
 
     pub fn delete_clip(&self, id: i64) -> Result<(), String> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self.conn.lock();
+        let row: Option<(String,)> = conn
+            .query_row(
+                "SELECT content_text FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+                params![id],
+                |row| Ok((row.get(0)?,)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some((text,)) = row else {
+            return Ok(());
+        };
+        conn.execute(
+            "UPDATE clips SET deleted_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )
+        .map_err(|e| e.to_string())?;
+        fts_remove(&conn, id, &text)?;
+        Ok(())
+    }
+
+    pub fn permanently_delete_clip(&self, id: i64) -> Result<(), String> {
         self.remove_clip_files(id)?;
         let conn = self.conn.lock();
         conn.execute("DELETE FROM clips WHERE id = ?1", params![id])
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn restore_clip(&self, id: i64) -> Result<(), String> {
+        let conn = self.conn.lock();
+        let updated = conn
+            .execute(
+                "UPDATE clips SET deleted_at = NULL WHERE id = ?1 AND deleted_at IS NOT NULL",
+                params![id],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Err("条目不在回收站中".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn list_trash_clips(&self) -> Result<Vec<ClipItem>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, content_type, content_text, content_blob IS NOT NULL,
+                        thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
+                 FROM clips WHERE deleted_at IS NOT NULL
+                 ORDER BY deleted_at DESC LIMIT 100",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], row_to_clip)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn empty_trash(&self) -> Result<u32, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT id FROM clips WHERE deleted_at IS NOT NULL")
+            .map_err(|e| e.to_string())?;
+        let ids: Vec<i64> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        drop(conn);
+        let mut n = 0u32;
+        for id in ids {
+            self.permanently_delete_clip(id)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    pub fn purge_expired_trash(&self) -> Result<u32, String> {
+        let hours = self.get_settings().trash_retention_hours.max(1) as i64;
+        let cutoff = (Utc::now() - Duration::hours(hours)).to_rfc3339();
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT id FROM clips WHERE deleted_at IS NOT NULL AND deleted_at < ?1")
+            .map_err(|e| e.to_string())?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![cutoff], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        drop(conn);
+        let mut n = 0u32;
+        for id in ids {
+            self.permanently_delete_clip(id)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    pub fn merge_duplicate_clips(&self) -> Result<u32, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, content_type, content_text, pinned, last_used_at
+                 FROM clips WHERE deleted_at IS NULL
+                 ORDER BY pinned DESC, last_used_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows: Vec<(i64, String, String, i32, String)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        drop(conn);
+
+        let mut seen: HashMap<(String, String), i64> = HashMap::new();
+        let mut remove_ids: Vec<i64> = Vec::new();
+        for (id, ctype, text, _pinned, _used) in rows {
+            let key = (ctype, text);
+            if seen.contains_key(&key) {
+                remove_ids.push(id);
+            } else {
+                seen.insert(key, id);
+            }
+        }
+
+        let mut merged = 0u32;
+        for id in remove_ids {
+            self.permanently_delete_clip(id)?;
+            merged += 1;
+        }
+        Ok(merged)
     }
 
     pub fn delete_clips(&self, ids: &[i64]) -> Result<(), String> {
@@ -601,7 +768,7 @@ impl Database {
         if keep_pinned {
             let conn = self.conn.lock();
             let mut stmt = conn
-                .prepare("SELECT id FROM clips WHERE pinned = 0")
+                .prepare("SELECT id FROM clips WHERE pinned = 0 AND deleted_at IS NULL")
                 .map_err(|e| e.to_string())?;
             let ids: Vec<i64> = stmt
                 .query_map([], |row| row.get(0))
@@ -614,7 +781,7 @@ impl Database {
         } else {
             let conn = self.conn.lock();
             let mut stmt = conn
-                .prepare("SELECT id FROM clips")
+                .prepare("SELECT id FROM clips WHERE deleted_at IS NULL")
                 .map_err(|e| e.to_string())?;
             let ids: Vec<i64> = stmt
                 .query_map([], |row| row.get(0))
@@ -660,8 +827,8 @@ impl Database {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare(
-                "SELECT id FROM clips WHERE pinned = 0 AND id NOT IN (
-                    SELECT id FROM clips ORDER BY last_used_at DESC LIMIT ?1
+                "SELECT id FROM clips WHERE pinned = 0 AND deleted_at IS NULL AND id NOT IN (
+                    SELECT id FROM clips WHERE deleted_at IS NULL ORDER BY last_used_at DESC LIMIT ?1
                  )",
             )
             .map_err(|e| e.to_string())?;
@@ -726,10 +893,12 @@ impl Database {
             drop(stmt);
             drop(conn);
             for id in ids {
-                self.delete_clip(id)?;
+                self.permanently_delete_clip(id)?;
                 removed += 1;
             }
         }
+
+        let _ = self.purge_expired_trash();
 
         Ok(removed)
     }
@@ -819,6 +988,15 @@ impl Database {
         }
         Ok(())
     }
+}
+
+fn fts_remove(conn: &Connection, id: i64, text: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO clips_fts(clips_fts, rowid, content_text) VALUES ('delete', ?1, ?2)",
+        params![id, text],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn category_where_clause(category: &ClipCategory) -> &'static str {

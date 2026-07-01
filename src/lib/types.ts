@@ -50,6 +50,8 @@ export interface AppSettings {
   window_draggable: boolean;
   pinned_collapse_threshold: number;
   image_save_dir: string;
+  panel_follow_cursor: boolean;
+  trash_retention_hours: number;
 }
 
 export interface HistoryStats {
@@ -58,6 +60,7 @@ export interface HistoryStats {
   image_count: number;
   file_count: number;
   disk_bytes: number;
+  trash_count: number;
 }
 
 export type ContextMenuAction =

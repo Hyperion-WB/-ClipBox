@@ -100,6 +100,8 @@ pub struct AppSettings {
     pub window_draggable: bool,
     pub pinned_collapse_threshold: i32,
     pub image_save_dir: String,
+    pub panel_follow_cursor: bool,
+    pub trash_retention_hours: i32,
 }
 
 impl Default for AppSettings {
@@ -131,6 +133,8 @@ impl Default for AppSettings {
             window_draggable: true,
             pinned_collapse_threshold: 10,
             image_save_dir: String::new(),
+            panel_follow_cursor: true,
+            trash_retention_hours: 24,
         }
     }
 }
@@ -142,4 +146,5 @@ pub struct HistoryStats {
     pub image_count: i64,
     pub file_count: i64,
     pub disk_bytes: u64,
+    pub trash_count: i64,
 }

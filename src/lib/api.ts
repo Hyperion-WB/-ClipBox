@@ -28,6 +28,14 @@ export const api = {
 
   deleteClips: (ids: number[]) => invoke<void>("delete_clips", { ids }),
 
+  restoreClip: (id: number) => invoke<void>("restore_clip", { id }),
+
+  listTrashClips: () => invoke<ClipItem[]>("list_trash_clips"),
+
+  emptyTrash: () => invoke<number>("empty_trash"),
+
+  mergeDuplicateClips: () => invoke<number>("merge_duplicate_clips"),
+
   clearHistory: (keepPinned: boolean) =>
     invoke<void>("clear_history", { keepPinned }),
 

@@ -1,8 +1,8 @@
 [package]
 name = "clipbox"
-version = "0.1.1"
+version = "0.1.2"
 description = "轻量剪贴板工具箱"
-authors = ["Hyperion-WB"]
+authors = ["仓库主任"]
 edition = "2021"
 
 [lib]

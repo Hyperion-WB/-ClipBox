@@ -67,6 +67,26 @@ pub fn delete_clips(state: State<'_, AppState>, ids: Vec<i64>) -> Result<(), Str
 }
 
 #[tauri::command]
+pub fn restore_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    state.db.restore_clip(id)
+}
+
+#[tauri::command]
+pub fn list_trash_clips(state: State<'_, AppState>) -> Result<Vec<ClipItem>, String> {
+    state.db.list_trash_clips()
+}
+
+#[tauri::command]
+pub fn empty_trash(state: State<'_, AppState>) -> Result<u32, String> {
+    state.db.empty_trash()
+}
+
+#[tauri::command]
+pub fn merge_duplicate_clips(state: State<'_, AppState>) -> Result<u32, String> {
+    state.db.merge_duplicate_clips()
+}
+
+#[tauri::command]
 pub fn clear_history(state: State<'_, AppState>, keep_pinned: bool) -> Result<(), String> {
     state.db.clear_history(keep_pinned)
 }
@@ -378,7 +398,12 @@ fn position_panel(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "main window not found".to_string())?;
 
     if let Some(state) = app.try_state::<AppState>() {
-        if let (Some(xs), Some(ys)) = (
+        let settings = state.db.get_settings();
+        if settings.panel_follow_cursor {
+            if let Some((cx, cy)) = cursor_physical_pos() {
+                return position_near_cursor(&window, cx, cy);
+            }
+        } else if let (Some(xs), Some(ys)) = (
             state.db.get_setting("panel_pos_x"),
             state.db.get_setting("panel_pos_y"),
         ) {
@@ -409,4 +434,41 @@ fn position_panel(app: &AppHandle) -> Result<(), String> {
         window.center().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn cursor_physical_pos() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    unsafe {
+        let mut pt = POINT::default();
+        GetCursorPos(&mut pt).ok()?;
+        Some((pt.x, pt.y))
+    }
+}
+
+#[cfg(not(windows))]
+fn cursor_physical_pos() -> Option<(i32, i32)> {
+    None
+}
+
+fn position_near_cursor(
+    window: &tauri::WebviewWindow,
+    cx: i32,
+    cy: i32,
+) -> Result<(), String> {
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let mut x = cx + 16;
+    let mut y = cy + 16;
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let pos = monitor.position();
+        let screen = monitor.size();
+        let max_x = pos.x + screen.width as i32 - size.width as i32;
+        let max_y = pos.y + screen.height as i32 - size.height as i32;
+        x = x.clamp(pos.x, max_x.max(pos.x));
+        y = y.clamp(pos.y, max_y.max(pos.y));
+    }
+    window
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| e.to_string())
 }

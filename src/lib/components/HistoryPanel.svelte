@@ -97,6 +97,11 @@
 
   let toast = $state("");
 
+  let lastTrashedId = $state<number | null>(null);
+
+  let undoVisible = $state(false);
+
+  let undoTimer: ReturnType<typeof setTimeout> | undefined;
 
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -209,6 +214,64 @@
 
 
 
+  function showTrashToast(id: number) {
+
+    lastTrashedId = id;
+
+    undoVisible = true;
+
+    toast = t("history.trashed");
+
+    if (undoTimer) clearTimeout(undoTimer);
+
+    undoTimer = setTimeout(() => {
+
+      undoVisible = false;
+
+      lastTrashedId = null;
+
+      toast = "";
+
+    }, 8000);
+
+  }
+
+
+
+  async function trashClip(id: number) {
+
+    await api.deleteClip(id);
+
+    showTrashToast(id);
+
+    await refreshPanelData();
+
+  }
+
+
+
+  async function undoTrash() {
+
+    if (lastTrashedId == null) return;
+
+    await api.restoreClip(lastTrashedId);
+
+    lastTrashedId = null;
+
+    undoVisible = false;
+
+    if (undoTimer) clearTimeout(undoTimer);
+
+    toast = t("history.restored");
+
+    setTimeout(() => (toast = ""), 2000);
+
+    await refreshPanelData();
+
+  }
+
+
+
   async function clearAllKeepPinned() {
 
     await api.clearHistory(true);
@@ -224,6 +287,12 @@
   const historyOnlyClips = $derived(flatClips.filter((c) => !c.pinned));
 
   const isMinimal = $derived(settings?.minimal_mode ?? false);
+
+  const nearHistoryLimit = $derived(
+
+    settings && stats ? stats.total_clips >= settings.max_history * 0.9 : false,
+
+  );
 
 
 
@@ -406,9 +475,7 @@
 
       case "delete":
 
-        await api.deleteClip(item.id);
-
-        await refreshPanelData();
+        await trashClip(item.id);
 
         break;
 
@@ -662,9 +729,7 @@
 
         if (multiSelectMode) return;
 
-        if (e.ctrlKey && e.shiftKey) pasteSelected(true);
-
-        else pasteSelected(false);
+        pasteSelected(e.shiftKey);
 
       } else if (e.key === "Delete" && multiSelectMode) {
 
@@ -947,6 +1012,10 @@
       <button type="button" class="clear-btn" onclick={clearAllKeepPinned}>{t("history.clearAll")}</button>
     </div>
 
+    {#if nearHistoryLimit && settings}
+      <p class="limit-hint">{t("history.nearLimit", { current: stats?.total_clips ?? 0, max: settings.max_history })}</p>
+    {/if}
+
 
 
     <SearchBar
@@ -1019,7 +1088,7 @@
 
         onPin={async (id) => { await api.togglePin(id); await loadClips(); }}
 
-        onDelete={async (id) => { await api.deleteClip(id); await refreshPanelData(); }}
+        onDelete={async (id) => { await trashClip(id); }}
 
         onPastePlain={(i) => pasteAt(i, true)}
 
@@ -1100,7 +1169,12 @@
 
   {#if toast}
 
-    <div class="toast">{toast}</div>
+    <div class="toast">
+      {toast}
+      {#if undoVisible}
+        <button type="button" class="undo-btn" onclick={undoTrash}>{t("history.undo")}</button>
+      {/if}
+    </div>
 
   {/if}
 
@@ -1272,13 +1346,51 @@
 
     border-radius: 8px;
 
-    font-size: 12px;
+    display: flex;
 
-    color: var(--text);
+    align-items: center;
+
+    gap: 10px;
+
+    font-size: 12px;
 
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 
-    pointer-events: none;
+  }
+
+
+
+  .undo-btn {
+
+    border: none;
+
+    background: var(--accent);
+
+    color: white;
+
+    padding: 4px 10px;
+
+    border-radius: 6px;
+
+    font-size: 11px;
+
+    cursor: pointer;
+
+  }
+
+
+
+  .limit-hint {
+
+    margin: 0;
+
+    padding: 0 10px 4px;
+
+    font-size: 10px;
+
+    color: #e65100;
+
+    flex-shrink: 0;
 
   }
 

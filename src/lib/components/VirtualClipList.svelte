@@ -87,6 +87,24 @@
     queueMicrotask(measureViewport);
   });
 
+  $effect(() => {
+    const el = container;
+    const idx = selectedRowIndex;
+    if (!el || idx < 0 || layout.rows.length === 0) return;
+    const offset = layout.offsets[idx] ?? 0;
+    const height = layout.heights[idx] ?? 56;
+    const viewTop = el.scrollTop;
+    const viewBottom = viewTop + el.clientHeight;
+    if (offset < viewTop) {
+      el.scrollTop = offset;
+      scrollTop = offset;
+    } else if (offset + height > viewBottom) {
+      const next = offset + height - el.clientHeight;
+      el.scrollTop = Math.max(0, next);
+      scrollTop = el.scrollTop;
+    }
+  });
+
   function findVisibleRange(): { start: number; end: number } {
     const { offsets, heights, rows } = layout;
     if (rows.length === 0) return { start: 0, end: 0 };

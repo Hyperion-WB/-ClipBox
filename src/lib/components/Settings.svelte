@@ -113,6 +113,16 @@
     message = await onMigrate(draft.storage_path);
   }
 
+  async function mergeDuplicates() {
+    const n = await api.mergeDuplicateClips();
+    message = t("settings.mergedDuplicates", { n });
+  }
+
+  async function emptyTrashBin() {
+    const n = await api.emptyTrash();
+    message = t("settings.emptiedTrash", { n });
+  }
+
   async function exportData() {
     const path = await saveDialog({ filters: [{ name: "ClipBox", extensions: ["clipbox"] }] });
     if (path) { await onExport(path); message = t("settings.exportSuccess"); }
@@ -172,6 +182,9 @@
       <SettingRow label={t("settings.dragBar")}>
         {#snippet control()}<Toggle bind:checked={draft.window_draggable} />{/snippet}
       </SettingRow>
+      <SettingRow label={t("settings.panelFollowCursor")} hint={t("settings.panelFollowCursorHint")}>
+        {#snippet control()}<Toggle bind:checked={draft.panel_follow_cursor} />{/snippet}
+      </SettingRow>
       <div class="field-block compact">
         <span class="field-label">{t("settings.pinnedThreshold")}</span>
         <input type="number" class="input num" min="3" max="50" bind:value={draft.pinned_collapse_threshold} />
@@ -188,6 +201,17 @@
       <SettingRow label={t("settings.smartSearch")}>
         {#snippet control()}<Toggle bind:checked={draft.enable_smart_search} />{/snippet}
       </SettingRow>
+    </CollapsibleSection>
+
+    <CollapsibleSection title={t("settings.shortcuts")}>
+      <ul class="shortcut-list">
+        <li>{t("settings.shortcutNav")}</li>
+        <li>{t("settings.shortcutPaste")}</li>
+        <li>{t("settings.shortcutPlain")}</li>
+        <li>{t("settings.shortcutQuick")}</li>
+        <li>{t("settings.shortcutClose")}</li>
+        <li>{t("settings.shortcutSearch")}</li>
+      </ul>
     </CollapsibleSection>
 
     <CollapsibleSection title={t("settings.sections.storage")}>
@@ -210,6 +234,10 @@
       <div class="field-block compact">
         <span class="field-label">{t("settings.maxHistory")}</span>
         <input type="number" class="input num" min="50" max="2000" bind:value={draft.max_history} />
+      </div>
+      <div class="field-block compact">
+        <span class="field-label">{t("settings.trashRetention")}</span>
+        <input type="number" class="input num" min="1" max="168" bind:value={draft.trash_retention_hours} />
       </div>
       <SettingRow label={t("settings.autoCleanup")}>
         {#snippet control()}<Toggle bind:checked={draft.auto_cleanup} />{/snippet}
@@ -261,6 +289,11 @@
     </CollapsibleSection>
 
     <CollapsibleSection title={t("settings.sections.data")}>
+      {#if stats && stats.trash_count > 0}
+        <p class="field-hint">{t("settings.trashCount", { n: stats.trash_count })}</p>
+        <button type="button" class="btn-block" onclick={emptyTrashBin}>{t("settings.emptyTrash")}</button>
+      {/if}
+      <button type="button" class="btn-block" onclick={mergeDuplicates}>{t("settings.mergeDuplicates")}</button>
       <button type="button" class="btn-block" onclick={exportData}>{t("settings.export")}</button>
       <button type="button" class="btn-block" onclick={importData}>{t("settings.import")}</button>
       <button type="button" class="btn-block" onclick={() => onClearHistory(true)}>{t("settings.clearKeepPinned")}</button>
@@ -301,6 +334,7 @@
   .notif-list { margin-top: 8px; }
   .notif-item { padding: 8px 10px; margin-top: 4px; background: var(--hover); border-radius: 8px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .version { font-size: 11px; color: var(--text-muted); margin: 12px 0 0; text-align: center; }
+  .shortcut-list { margin: 4px 0 0; padding: 0 0 0 18px; font-size: 12px; color: var(--text-muted); line-height: 1.7; }
   .settings-footer { padding: 10px 16px 14px; border-top: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
   .message { margin: 0 0 8px; font-size: 12px; color: var(--accent); text-align: center; }
   .save-btn { width: 100%; border: none; background: var(--accent); color: white; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
