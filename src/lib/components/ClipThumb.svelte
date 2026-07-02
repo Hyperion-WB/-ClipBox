@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from "$lib/api";
+  import { getCachedThumb, setCachedThumb } from "$lib/thumbCache";
 
   interface Props {
     clipId: number;
@@ -20,7 +21,7 @@
       ([entry]) => {
         if (entry?.isIntersecting) visible = true;
       },
-      { rootMargin: "120px" },
+      { rootMargin: "64px" },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -28,13 +29,19 @@
 
   $effect(() => {
     if (!visible) return;
+    const cached = getCachedThumb(clipId);
+    if (cached) {
+      src = cached;
+      loading = false;
+      return;
+    }
     let cancelled = false;
     loading = true;
     api.getClipThumbnail(clipId).then((url) => {
-      if (!cancelled) {
-        src = url;
-        loading = false;
-      }
+      if (cancelled) return;
+      if (url) setCachedThumb(clipId, url);
+      src = url;
+      loading = false;
     });
     return () => {
       cancelled = true;

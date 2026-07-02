@@ -53,5 +53,6 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute("ALTER TABLE clips ADD COLUMN thumb_path TEXT", []);
     let _ = conn.execute("ALTER TABLE clips ADD COLUMN source_app TEXT", []);
     let _ = conn.execute("ALTER TABLE clips ADD COLUMN deleted_at TEXT", []);
+    let _ = conn.execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT", []);
     Ok(())
 }

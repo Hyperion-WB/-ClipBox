@@ -17,6 +17,7 @@
     onOpenSettings: () => void;
     onClipContextMenu?: (item: ClipItem, e: MouseEvent) => void;
     onSaveImage?: (item: ClipItem) => void;
+    maskSensitive?: boolean;
   }
 
   let {
@@ -31,6 +32,7 @@
     onOpenSettings,
     onClipContextMenu,
     onSaveImage,
+    maskSensitive = true,
   }: Props = $props();
 
   let snippetsCollapsed = $state(true);
@@ -87,6 +89,7 @@
         {#each pinnedClips as item (item.id)}
           <MinimalCard
             {item}
+            {maskSensitive}
             selected={selectedClipId === item.id}
             showPin
             onSelect={() => onPasteClip(item)}
@@ -105,6 +108,7 @@
         {#each historyClips as item (item.id)}
           <MinimalCard
             {item}
+            {maskSensitive}
             selected={selectedClipId === item.id}
             onSelect={() => onPasteClip(item)}
             onSaveImage={onSaveImage ? () => onSaveImage(item) : undefined}

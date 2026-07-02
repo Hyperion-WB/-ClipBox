@@ -125,7 +125,7 @@ export function highlightIcon(kind: HighlightKind): string {
     case "tracking":
       return "📦";
     case "json":
-      return "{ }";
+      return "▤";
     case "code":
       return "</>";
     default:

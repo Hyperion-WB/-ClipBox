@@ -9,6 +9,9 @@
     selectedRowIndex: number;
     selectedIds: Set<number>;
     multiSelectMode: boolean;
+    maskSensitive?: boolean;
+    revealedIds?: Set<number>;
+    ocrEnabled?: boolean;
     onSaveImage?: (id: number) => void;
     onSelect: (rowIndex: number, e: MouseEvent) => void;
     onContextMenu: (rowIndex: number, e: MouseEvent) => void;
@@ -19,6 +22,8 @@
     onFormatPaste: (clipIndex: number) => void;
     onOpenPath: (path: string) => void;
     onOpenUrl: (url: string) => void;
+    onToggleReveal?: (id: number) => void;
+    onOcrClip?: (id: number) => void;
     panelOpen?: boolean;
   }
 
@@ -27,6 +32,9 @@
     selectedRowIndex,
     selectedIds,
     multiSelectMode,
+    maskSensitive = true,
+    revealedIds = new Set<number>(),
+    ocrEnabled = false,
     onSaveImage,
     onSelect,
     onContextMenu,
@@ -37,6 +45,8 @@
     onFormatPaste,
     onOpenPath,
     onOpenUrl,
+    onToggleReveal,
+    onOcrClip,
     panelOpen = false,
   }: Props = $props();
 
@@ -111,12 +121,12 @@
 
     const viewH = Math.max(viewportHeight, 200);
     const top = scrollTop;
-    const bottom = top + viewH + 120;
+    const bottom = top + viewH + 64;
 
     let start = 0;
     for (let i = 0; i < rows.length; i++) {
-      if (offsets[i] + heights[i] > top - 80) {
-        start = Math.max(0, i - 2);
+      if (offsets[i] + heights[i] > top - 48) {
+        start = Math.max(0, i - 1);
         break;
       }
     }
@@ -124,7 +134,7 @@
     let end = rows.length;
     for (let i = start; i < rows.length; i++) {
       if (offsets[i] >= bottom) {
-        end = Math.min(rows.length, i + 2);
+        end = Math.min(rows.length, i + 1);
         break;
       }
     }
@@ -159,6 +169,9 @@
               selected={selectedRowIndex === rowIndex}
               checked={selectedIds.has(row.item.id)}
               {multiSelectMode}
+              {maskSensitive}
+              revealed={revealedIds.has(row.item.id)}
+              {ocrEnabled}
               onSaveImage={row.item.content_type === "image" && onSaveImage
                 ? () => onSaveImage(row.item.id)
                 : undefined}
@@ -169,6 +182,8 @@
               onPastePlain={() => onPastePlain(row.clipIndex)}
               onPasteSegment={onPasteSegment}
               onFormatPaste={() => onFormatPaste(row.clipIndex)}
+              onToggleReveal={onToggleReveal ? () => onToggleReveal(row.item.id) : undefined}
+              onOcrClip={onOcrClip ? () => onOcrClip(row.item.id) : undefined}
               {onOpenPath}
               {onOpenUrl}
             />
@@ -194,7 +209,6 @@
     left: 0;
     right: 0;
     top: 0;
-    will-change: transform;
   }
 
   .section-header {

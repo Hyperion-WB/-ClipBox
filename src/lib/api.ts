@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, ClipCategory, ClipItem, HistoryStats, Snippet } from "./types";
+import type { AppSettings, ClipCategory, ClipItem, HistoryStats, Snippet, StorageDetails } from "./types";
 
 export const api = {
   listClips: (query?: string, category?: ClipCategory) =>
@@ -35,6 +35,16 @@ export const api = {
   emptyTrash: () => invoke<number>("empty_trash"),
 
   mergeDuplicateClips: () => invoke<number>("merge_duplicate_clips"),
+
+  getStorageDetails: () => invoke<StorageDetails>("get_storage_details"),
+
+  reclaimStorage: () => invoke<number>("reclaim_storage"),
+
+  openDataFolder: () => invoke<void>("open_data_folder"),
+
+  ocrClip: (id: number) => invoke<boolean>("ocr_clip", { id }),
+
+  ocrBackfill: (limit?: number) => invoke<number>("ocr_backfill", { limit: limit ?? null }),
 
   clearHistory: (keepPinned: boolean) =>
     invoke<void>("clear_history", { keepPinned }),

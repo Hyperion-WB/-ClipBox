@@ -14,6 +14,8 @@
     --hover: rgba(0, 0, 0, 0.04);
     --hover-strong: rgba(0, 0, 0, 0.08);
     --accent: #0081ff;
+    --sensitive-accent: #c62828;
+    --sensitive-tint: #ef5350;
     --badge-bg: #f0f0f0;
     --badge-text: #666;
     --chip-url-bg: #e3f2fd;
@@ -39,6 +41,10 @@
     --avatar-bg: hsl(var(--hue, 200) 55% 90%);
     --avatar-fg: hsl(var(--hue, 200) 45% 35%);
     --avatar-border: rgba(0, 0, 0, 0.06);
+    --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.34, 1.15, 0.64, 1);
+    --duration-fast: 0.15s;
+    --duration-normal: 0.2s;
   }
 
   :global(:root.theme-dark) {
@@ -50,6 +56,8 @@
     --hover: rgba(255, 255, 255, 0.06);
     --hover-strong: rgba(255, 255, 255, 0.1);
     --accent: #5eb3ff;
+    --sensitive-accent: #ef9a9a;
+    --sensitive-tint: #e57373;
     --badge-bg: #444;
     --badge-text: #ddd;
     --chip-url-bg: rgba(77, 171, 247, 0.22);
@@ -86,6 +94,8 @@
     --hover: rgba(0, 0, 0, 0.04);
     --hover-strong: rgba(0, 0, 0, 0.08);
     --accent: #0081ff;
+    --sensitive-accent: #c62828;
+    --sensitive-tint: #ef5350;
     --badge-bg: #f0f0f0;
     --badge-text: #666;
     --chip-url-bg: #e3f2fd;
@@ -111,6 +121,10 @@
     --avatar-bg: hsl(var(--hue, 200) 55% 90%);
     --avatar-fg: hsl(var(--hue, 200) 45% 35%);
     --avatar-border: rgba(0, 0, 0, 0.06);
+    --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.34, 1.15, 0.64, 1);
+    --duration-fast: 0.15s;
+    --duration-normal: 0.2s;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -123,6 +137,8 @@
       --hover: rgba(255, 255, 255, 0.06);
       --hover-strong: rgba(255, 255, 255, 0.1);
       --accent: #5eb3ff;
+      --sensitive-accent: #ef9a9a;
+      --sensitive-tint: #e57373;
       --badge-bg: #444;
       --badge-text: #ddd;
       --chip-url-bg: rgba(77, 171, 247, 0.22);
@@ -172,7 +188,12 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  :global(.virtual-list .window) {
-    transform: translateZ(0);
+  @media (prefers-reduced-motion: reduce) {
+    :global(.clip-item),
+    :global(.chip),
+    :global(.action-btn),
+    :global(.pin-btn) {
+      transition: none !important;
+    }
   }
 </style>

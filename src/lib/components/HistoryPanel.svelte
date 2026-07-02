@@ -56,6 +56,7 @@
     isJsonText,
   } from "$lib/formatContent";
   import { clearSourceBadgeCache } from "$lib/sourceBadgeCache";
+  import { clearThumbCache } from "$lib/thumbCache";
   import { setLocale, t } from "$lib/i18n.svelte";
   type Tab = "history" | "snippets" | "settings";
 
@@ -108,6 +109,8 @@
   let clipReloadTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   let lastClickedRow = $state(0);
+
+  let revealedIds = $state<Set<number>>(new Set());
 
 
 
@@ -202,6 +205,20 @@
 
     if (stats) diskLabel = await api.formatDiskSize(stats.disk_bytes);
 
+  }
+
+
+
+  function toggleReveal(id: number) {
+    const next = new Set(revealedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    revealedIds = next;
+  }
+
+  async function runOcrForClip(id: number) {
+    const ok = await api.ocrClip(id);
+    if (ok) await loadClips();
   }
 
 
@@ -791,6 +808,8 @@
 
     clearSourceBadgeCache();
 
+    clearThumbCache();
+
   }
 
 
@@ -938,6 +957,7 @@
       onClearHistory={async (keepPinned) => { await api.clearHistory(keepPinned); await refreshPanelData(); }}
 
       onCleanup={async () => { const n = await api.runCleanup(); await refreshPanelData(); return n; }}
+      onDataChanged={refreshPanelData}
 
     />
 
@@ -972,6 +992,8 @@
       }}
 
       onSaveImage={(item) => saveImageToFolder(item)}
+
+      maskSensitive={settings?.mask_sensitive ?? true}
 
     />
 
@@ -1072,6 +1094,12 @@
 
         {multiSelectMode}
 
+        maskSensitive={settings?.mask_sensitive ?? true}
+
+        {revealedIds}
+
+        ocrEnabled={settings?.enable_image_ocr ?? false}
+
         onSaveImage={(id) => { const item = flatClips.find((c) => c.id === id); if (item) saveImageToFolder(item); }}
 
         onSelect={handleItemSelect}
@@ -1102,6 +1130,10 @@
         onOpenPath={openPath}
 
         onOpenUrl={openUrl}
+
+        onToggleReveal={toggleReveal}
+
+        onOcrClip={runOcrForClip}
 
       />
 
@@ -1156,6 +1188,7 @@
       onClearHistory={async (keepPinned) => { await api.clearHistory(keepPinned); await refreshPanelData(); }}
 
       onCleanup={async () => { const n = await api.runCleanup(); await refreshPanelData(); return n; }}
+      onDataChanged={refreshPanelData}
 
     />
 
@@ -1242,11 +1275,9 @@
 
     gap: 8px;
 
-    padding: 6px 12px;
+    padding: 6px 12px 4px;
 
-    background: var(--surface);
-
-    border-bottom: 1px solid var(--border);
+    background: var(--bg);
 
     flex-shrink: 0;
 

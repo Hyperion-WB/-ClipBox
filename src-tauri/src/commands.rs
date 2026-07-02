@@ -2,7 +2,7 @@ use crate::backup::{export_backup, format_bytes, import_backup, migrate_storage}
 use crate::clipboard::paste::{paste_clip, paste_snippet, write_clipboard_only};
 use crate::config::save_data_dir;
 use crate::db::Database;
-use crate::models::{AppSettings, ClipCategory, ClipItem, HistoryStats, Snippet};
+use crate::models::{AppSettings, ClipCategory, ClipItem, HistoryStats, Snippet, StorageDetails};
 use crate::state::AppState;
 use crate::{apply_hotkey, hotkey::parse_hotkey};
 use std::path::PathBuf;
@@ -84,6 +84,43 @@ pub fn empty_trash(state: State<'_, AppState>) -> Result<u32, String> {
 #[tauri::command]
 pub fn merge_duplicate_clips(state: State<'_, AppState>) -> Result<u32, String> {
     state.db.merge_duplicate_clips()
+}
+
+#[tauri::command]
+pub fn get_storage_details(state: State<'_, AppState>) -> Result<StorageDetails, String> {
+    crate::storage::get_storage_details(&state.db)
+}
+
+#[tauri::command]
+pub fn reclaim_storage(state: State<'_, AppState>) -> Result<u32, String> {
+    state.db.reclaim_storage()
+}
+
+#[tauri::command]
+pub fn ocr_clip(state: State<'_, AppState>, id: i64) -> Result<bool, String> {
+    crate::ocr::run_ocr_for_clip(&state.db, id, true)
+}
+
+#[tauri::command]
+pub fn ocr_backfill(state: State<'_, AppState>, limit: Option<i32>) -> Result<u32, String> {
+    let limit = limit.unwrap_or(50).clamp(1, 200);
+    let ids = state.db.list_images_pending_ocr(limit)?;
+    let mut done = 0u32;
+    for id in ids {
+        if crate::ocr::run_ocr_for_clip(&state.db, id, false)? {
+            done += 1;
+        }
+    }
+    Ok(done)
+}
+
+#[tauri::command]
+pub fn open_data_folder(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.db.data_dir().to_string_lossy().to_string();
+    app.opener()
+        .open_path(dir, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

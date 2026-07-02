@@ -4,6 +4,8 @@
 
   import { t } from "$lib/i18n.svelte";
 
+  import { analyzeSensitive, maskForDisplay } from "$lib/sensitiveMask";
+
   import ClipThumb from "./ClipThumb.svelte";
 
 
@@ -15,6 +17,8 @@
     selected: boolean;
 
     showPin?: boolean;
+
+    maskSensitive?: boolean;
 
     onSelect: () => void;
 
@@ -34,6 +38,8 @@
 
     showPin = false,
 
+    maskSensitive = true,
+
     onSelect,
 
     onSaveImage,
@@ -51,6 +57,14 @@
     return one.length > 120 ? one.slice(0, 120) + "…" : one;
 
   }
+
+  const displayText = $derived.by(() => {
+    if (item.content_type === "image" || item.content_type === "file") {
+      return preview(item.content_text);
+    }
+    const masked = maskSensitive && analyzeSensitive(item.content_text).sensitive;
+    return preview(masked ? maskForDisplay(item.content_text, true) : item.content_text);
+  });
 
 </script>
 
@@ -78,7 +92,7 @@
 
     {/if}
 
-    <span class="text">{preview(item.content_text)}</span>
+    <span class="text">{displayText}</span>
 
   </div>
 

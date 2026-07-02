@@ -13,6 +13,7 @@ export interface ClipItem {
   source_app: string | null;
   created_at: string;
   last_used_at: string;
+  has_ocr: boolean;
 }
 
 export interface Snippet {
@@ -52,6 +53,34 @@ export interface AppSettings {
   image_save_dir: string;
   panel_follow_cursor: boolean;
   trash_retention_hours: number;
+  compress_images: boolean;
+  image_max_dimension: number;
+  image_jpeg_quality: number;
+  image_compress_min_kb: number;
+  enable_image_ocr: boolean;
+  mask_sensitive: boolean;
+}
+
+export interface StorageLargestItem {
+  id: number;
+  content_type: string;
+  preview: string;
+  bytes: number;
+}
+
+export interface StorageDetails {
+  data_dir: string;
+  total_bytes: number;
+  db_bytes: number;
+  images_bytes: number;
+  thumbs_bytes: number;
+  app_icons_bytes: number;
+  orphan_count: number;
+  orphan_bytes: number;
+  trash_count: number;
+  trash_bytes: number;
+  active_count: number;
+  largest: StorageLargestItem[];
 }
 
 export interface HistoryStats {
@@ -61,6 +90,8 @@ export interface HistoryStats {
   file_count: number;
   disk_bytes: number;
   trash_count: number;
+  db_bytes: number;
+  media_bytes: number;
 }
 
 export type ContextMenuAction =

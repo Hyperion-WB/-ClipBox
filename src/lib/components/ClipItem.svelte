@@ -3,6 +3,12 @@
   import type { ClipItem } from "$lib/types";
   import { itemHasFormatAction } from "$lib/formatContent";
   import { t } from "$lib/i18n.svelte";
+  import {
+    analyzeSensitive,
+    maskForDisplay,
+    sensitiveKindLabel,
+    type SensitiveKind,
+  } from "$lib/sensitiveMask";
   import ClipHighlights from "./ClipHighlights.svelte";
   import ClipThumb from "./ClipThumb.svelte";
   import SourceBadge from "./SourceBadge.svelte";
@@ -15,6 +21,9 @@
     multiSelectMode: boolean;
     rowHeight?: number;
     highlights?: Highlight[];
+    maskSensitive?: boolean;
+    revealed?: boolean;
+    ocrEnabled?: boolean;
     onSelect: (e: MouseEvent) => void;
     onContextMenu: (e: MouseEvent) => void;
     onPin: () => void;
@@ -25,6 +34,8 @@
     onOpenUrl?: (value: string) => void;
     onSaveImage?: () => void;
     onFormatPaste?: () => void;
+    onToggleReveal?: () => void;
+    onOcrClip?: () => void;
   }
 
   let {
@@ -35,6 +46,9 @@
     multiSelectMode,
     rowHeight = 44,
     highlights = [],
+    maskSensitive = true,
+    revealed = false,
+    ocrEnabled = false,
     onSelect,
     onContextMenu,
     onPin,
@@ -45,9 +59,17 @@
     onOpenUrl,
     onSaveImage,
     onFormatPaste,
+    onToggleReveal,
+    onOcrClip,
   }: Props = $props();
 
   const expanded = $derived(highlights.length > 0);
+  const sensitiveInfo = $derived(
+    item.content_type !== "image" && item.content_type !== "file"
+      ? analyzeSensitive(item.content_text)
+      : { sensitive: false, kinds: [] as SensitiveKind[] },
+  );
+  const showMasked = $derived(maskSensitive && sensitiveInfo.sensitive && !revealed);
   const canFormat = $derived(
     item.content_type !== "image" &&
       item.content_type !== "file" &&
@@ -59,6 +81,14 @@
     const max = expanded ? 120 : 100;
     return oneLine.length > max ? oneLine.slice(0, max) + "…" : oneLine;
   }
+
+  const displayText = $derived(
+    preview(showMasked ? maskForDisplay(item.content_text, true) : item.content_text),
+  );
+
+  const sensitiveTitle = $derived(
+    sensitiveInfo.kinds.map((k) => sensitiveKindLabel(k, t)).join(" · "),
+  );
 
   function typeLabel(type: ClipItem["content_type"]): string {
     switch (type) {
@@ -74,6 +104,7 @@
   }
 
   const hotkeyNum = $derived(index < 9 ? index + 1 : null);
+  const showHotkey = $derived(!multiSelectMode && hotkeyNum !== null);
 </script>
 
 <div
@@ -83,6 +114,8 @@
   class:pinned={item.pinned}
   class:expanded
   class:has-chips={expanded}
+  class:sensitive={showMasked}
+  class:has-hotkey={showHotkey}
   style:min-height="{rowHeight}px"
   role="button"
   tabindex="-1"
@@ -91,34 +124,57 @@
 >
   {#if multiSelectMode}
     <input type="checkbox" checked={checked} tabindex="-1" readonly />
-  {:else if hotkeyNum !== null}
+  {:else if showHotkey}
     <span class="hotkey-num">{hotkeyNum}</span>
   {:else}
     <span class="hotkey-num empty"></span>
   {/if}
 
-  <div class="type-badge" data-type={item.content_type}>{typeLabel(item.content_type)}</div>
+  {#if !showHotkey}
+    <div class="type-badge" data-type={item.content_type}>{typeLabel(item.content_type)}</div>
+  {/if}
 
   <div class="content">
     {#if item.content_type === "image" && item.has_thumbnail}
       <ClipThumb clipId={item.id} />
     {/if}
     <div class="text-block">
-      <span class="text">{preview(item.content_text)}</span>
+      <span class="text" class:masked={showMasked}>{displayText}</span>
+      {#if showMasked}
+        <span class="sensitive-badge" title={sensitiveTitle}>{t("sensitive.badge")}</span>
+      {/if}
       {#if expanded && onPasteSegment}
         <ClipHighlights
           items={highlights}
           onPaste={onPasteSegment}
           {onOpenPath}
           {onOpenUrl}
+          {maskSensitive}
+          revealed={revealed}
         />
       {:else if item.source_app}
         <SourceBadge name={item.source_app} />
+      {/if}
+      {#if item.content_type === "image" && item.has_ocr}
+        <span class="ocr-badge" title={t("history.ocrIndexed")}>文</span>
       {/if}
     </div>
   </div>
 
   <div class="actions">
+    {#if showMasked && onToggleReveal}
+      <button
+        class="action-btn reveal"
+        title={t("sensitive.reveal")}
+        onclick={(e) => { e.stopPropagation(); onToggleReveal(); }}
+      >👁</button>
+    {:else if revealed && sensitiveInfo.sensitive && onToggleReveal}
+      <button
+        class="action-btn reveal"
+        title={t("sensitive.hide")}
+        onclick={(e) => { e.stopPropagation(); onToggleReveal(); }}
+      >🙈</button>
+    {/if}
     {#if item.content_type === "file" && onOpenPath}
       <button
         class="action-btn"
@@ -129,6 +185,13 @@
     {#if item.content_type === "image" && onSaveImage}
       <button class="action-btn" title={t("menu.saveImageTitle")} onclick={(e) => { e.stopPropagation(); onSaveImage(); }}>↓</button>
     {/if}
+    {#if item.content_type === "image" && ocrEnabled && onOcrClip && !item.has_ocr}
+      <button
+        class="action-btn ocr"
+        title={t("clip.ocrRun")}
+        onclick={(e) => { e.stopPropagation(); onOcrClip(); }}
+      >文</button>
+    {/if}
     {#if item.content_type === "html"}
       <button class="action-btn" title={t("menu.pastePlain")} onclick={(e) => { e.stopPropagation(); onPastePlain(); }}>¶</button>
     {/if}
@@ -137,7 +200,12 @@
         class="action-btn format"
         title={t("menu.formatPaste")}
         onclick={(e) => { e.stopPropagation(); onFormatPaste(); }}
-      >{"{ }"}</button>
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none">
+          <path d="M3.5 4.5h7.5M3.5 8h5M3.5 11.5h6.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+          <path d="M12.5 6.5 14.5 8 12.5 9.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     {/if}
     <button
       class="pin-btn"
@@ -163,12 +231,20 @@
   .clip-item {
     display: flex;
     align-items: flex-start;
-    gap: 6px;
-    padding: 6px 4px 6px 8px;
+    gap: 8px;
+    padding: 6px 6px 6px 8px;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 10px;
     margin: 0 4px;
     box-sizing: border-box;
+    transition:
+      background-color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      box-shadow var(--duration-fast, 0.15s) var(--ease-smooth, ease);
+    contain: layout style;
+  }
+
+  .clip-item.has-hotkey {
+    gap: 10px;
   }
 
   .clip-item.has-chips {
@@ -185,6 +261,10 @@
     background: var(--hover);
   }
 
+  .clip-item.selected {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
   .clip-item.pinned {
     background: color-mix(in srgb, var(--accent) 5%, transparent);
   }
@@ -194,19 +274,25 @@
     background: color-mix(in srgb, var(--accent) 10%, var(--hover));
   }
 
+  .clip-item.sensitive.selected {
+    box-shadow: inset 2px 0 0 var(--sensitive-accent);
+  }
+
   .hotkey-num {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    background: var(--accent);
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 82%, #000));
     color: white;
     font-size: 11px;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     margin-top: 2px;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 35%, transparent);
   }
 
   .clip-item:not(.expanded) .hotkey-num {
@@ -215,12 +301,14 @@
 
   .hotkey-num.empty {
     background: transparent;
+    box-shadow: none;
+    width: 20px;
   }
 
   .type-badge {
     width: 22px;
     height: 22px;
-    border-radius: 5px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -267,6 +355,44 @@
     padding-right: 2px;
   }
 
+  .clip-item.sensitive {
+    background: color-mix(in srgb, var(--sensitive-tint) 6%, transparent);
+    box-shadow: inset 2px 0 0 var(--sensitive-accent);
+  }
+
+  .clip-item.sensitive:hover,
+  .clip-item.sensitive.selected {
+    background: color-mix(in srgb, var(--sensitive-tint) 10%, var(--hover));
+  }
+
+  .text.masked {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .sensitive-badge {
+    display: inline-block;
+    margin-top: 2px;
+    margin-right: 4px;
+    padding: 0 5px;
+    font-size: 10px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--sensitive-accent) 12%, var(--surface));
+    color: var(--sensitive-accent);
+    line-height: 1.5;
+  }
+
+  .ocr-badge {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 0 5px;
+    font-size: 10px;
+    border-radius: 4px;
+    background: var(--badge-bg);
+    color: var(--accent);
+    line-height: 1.5;
+  }
+
   .text {
     font-size: 13px;
     color: var(--text);
@@ -296,18 +422,27 @@
     height: 22px;
     border: none;
     background: transparent;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     color: var(--text-muted);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
+    transition:
+      background-color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      transform var(--duration-fast, 0.15s) var(--ease-spring, ease);
   }
 
   .pin-btn:hover {
     background: var(--hover-strong);
     color: var(--text);
+    transform: scale(1.06);
+  }
+
+  .pin-btn:active {
+    transform: scale(0.94);
   }
 
   .pin-btn.is-pinned {
@@ -318,10 +453,15 @@
     display: flex;
     gap: 1px;
     opacity: 0;
+    transform: translateX(3px);
     flex-shrink: 0;
     align-self: flex-start;
     margin-top: 0;
     padding-left: 2px;
+    pointer-events: none;
+    transition:
+      opacity var(--duration-normal, 0.2s) var(--ease-smooth, ease),
+      transform var(--duration-normal, 0.2s) var(--ease-smooth, ease);
   }
 
   .clip-item:not(.expanded) .actions {
@@ -331,6 +471,8 @@
   .clip-item:hover .actions,
   .clip-item.selected .actions {
     opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
   }
 
   .action-btn {
@@ -338,15 +480,28 @@
     height: 22px;
     border: none;
     background: transparent;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 11px;
     color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition:
+      background-color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      transform var(--duration-fast, 0.15s) var(--ease-spring, ease);
   }
 
   .action-btn:hover {
     background: var(--hover-strong);
     color: var(--text);
+    transform: scale(1.06);
+  }
+
+  .action-btn:active {
+    transform: scale(0.94);
   }
 
   .action-btn.delete:hover {
@@ -354,10 +509,21 @@
   }
 
   .action-btn.format {
-    font-family: ui-monospace, monospace;
-    font-size: 9px;
-    letter-spacing: -0.5px;
     color: var(--accent);
+  }
+
+  .action-btn.format svg {
+    display: block;
+  }
+
+  .action-btn.reveal,
+  .action-btn.ocr {
+    font-size: 10px;
+  }
+
+  .action-btn.ocr {
+    color: var(--accent);
+    font-weight: 600;
   }
 
   input[type="checkbox"] {
@@ -366,5 +532,20 @@
     flex-shrink: 0;
     pointer-events: none;
     margin-top: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .clip-item,
+    .actions,
+    .action-btn,
+    .pin-btn {
+      transition: none;
+    }
+    .action-btn:hover,
+    .pin-btn:hover,
+    .action-btn:active,
+    .pin-btn:active {
+      transform: none;
+    }
   }
 </style>

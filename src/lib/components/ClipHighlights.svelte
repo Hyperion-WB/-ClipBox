@@ -3,6 +3,7 @@
   import { highlightIcon } from "$lib/extractHighlights";
   import { partitionHighlights, shouldCollapseChips } from "$lib/chipLayout";
   import { formatHighlight } from "$lib/formatContent";
+  import { maskForDisplay } from "$lib/sensitiveMask";
   import { t } from "$lib/i18n.svelte";
 
   interface Props {
@@ -10,9 +11,11 @@
     onPaste: (value: string) => void;
     onOpenPath?: (value: string) => void;
     onOpenUrl?: (value: string) => void;
+    maskSensitive?: boolean;
+    revealed?: boolean;
   }
 
-  let { items, onPaste, onOpenPath, onOpenUrl }: Props = $props();
+  let { items, onPaste, onOpenPath, onOpenUrl, maskSensitive = true, revealed = false }: Props = $props();
   let expanded = $state(false);
 
   const foldable = $derived(shouldCollapseChips(items));
@@ -22,8 +25,18 @@
 
   function chipTitle(h: Highlight): string {
     if (h.kind === "json" || h.kind === "code") return t("chip.formatPasteHint");
-    if (h.value.length > 80) return h.value.slice(0, 80) + "…";
-    return h.value;
+    const raw = h.value.length > 80 ? h.value.slice(0, 80) + "…" : h.value;
+    if (maskSensitive && !revealed && (h.kind === "otp" || h.kind === "tracking")) {
+      return maskForDisplay(raw, true);
+    }
+    return raw;
+  }
+
+  function chipLabel(h: Highlight): string {
+    if (maskSensitive && !revealed && (h.kind === "otp" || h.kind === "tracking")) {
+      return maskForDisplay(h.label, true);
+    }
+    return h.label;
   }
 
   function onChip(e: MouseEvent, h: Highlight) {
@@ -67,7 +80,7 @@
         onclick={(e) => onChip(e, h)}
       >
         <span class="icon">{highlightIcon(h.kind)}</span>
-        <span class="label">{h.label}</span>
+        <span class="label">{chipLabel(h)}</span>
       </button>
     {/each}
 
@@ -107,7 +120,7 @@
           onclick={(e) => onChip(e, h)}
         >
           <span class="icon">{highlightIcon(h.kind)}</span>
-          <span class="label">{h.label}</span>
+          <span class="label">{chipLabel(h)}</span>
         </button>
       {/each}
     </div>
@@ -143,11 +156,20 @@
     color: var(--chip-fg, var(--text));
     cursor: pointer;
     flex-shrink: 0;
+    transition:
+      background-color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      border-color var(--duration-fast, 0.15s) var(--ease-smooth, ease),
+      transform var(--duration-fast, 0.15s) var(--ease-spring, ease);
   }
 
   .chip:hover {
     background: var(--chip-bg-hover, color-mix(in srgb, var(--accent) 18%, var(--surface)));
     border-color: var(--chip-border-hover, var(--chip-border, transparent));
+    transform: translateY(-1px);
+  }
+
+  .chip:active {
+    transform: translateY(0) scale(0.97);
   }
 
   .chip.toggle {

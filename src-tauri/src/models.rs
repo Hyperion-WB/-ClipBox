@@ -61,6 +61,7 @@ pub struct ClipItem {
     pub source_app: Option<String>,
     pub created_at: String,
     pub last_used_at: String,
+    pub has_ocr: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +103,12 @@ pub struct AppSettings {
     pub image_save_dir: String,
     pub panel_follow_cursor: bool,
     pub trash_retention_hours: i32,
+    pub compress_images: bool,
+    pub image_max_dimension: i32,
+    pub image_jpeg_quality: i32,
+    pub image_compress_min_kb: i32,
+    pub enable_image_ocr: bool,
+    pub mask_sensitive: bool,
 }
 
 impl Default for AppSettings {
@@ -135,6 +142,12 @@ impl Default for AppSettings {
             image_save_dir: String::new(),
             panel_follow_cursor: true,
             trash_retention_hours: 24,
+            compress_images: true,
+            image_max_dimension: 1920,
+            image_jpeg_quality: 82,
+            image_compress_min_kb: 512,
+            enable_image_ocr: false,
+            mask_sensitive: true,
         }
     }
 }
@@ -147,4 +160,30 @@ pub struct HistoryStats {
     pub file_count: i64,
     pub disk_bytes: u64,
     pub trash_count: i64,
+    pub db_bytes: u64,
+    pub media_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageLargestItem {
+    pub id: i64,
+    pub content_type: String,
+    pub preview: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageDetails {
+    pub data_dir: String,
+    pub total_bytes: u64,
+    pub db_bytes: u64,
+    pub images_bytes: u64,
+    pub thumbs_bytes: u64,
+    pub app_icons_bytes: u64,
+    pub orphan_count: u32,
+    pub orphan_bytes: u64,
+    pub trash_count: i64,
+    pub trash_bytes: u64,
+    pub active_count: i64,
+    pub largest: Vec<StorageLargestItem>,
 }

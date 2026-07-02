@@ -67,6 +67,12 @@ impl Database {
             ("window_draggable", "true"),
             ("pinned_collapse_threshold", "10"),
             ("image_save_dir", ""),
+            ("compress_images", "true"),
+            ("image_max_dimension", "1920"),
+            ("image_jpeg_quality", "82"),
+            ("image_compress_min_kb", "512"),
+            ("enable_image_ocr", "false"),
+            ("mask_sensitive", "true"),
         ];
         let conn = self.conn.lock();
         for (key, value) in defaults {
@@ -184,6 +190,21 @@ impl Database {
                 .get_setting("trash_retention_hours")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(24),
+            compress_images: self.bool_setting("compress_images", true),
+            image_max_dimension: self
+                .get_setting("image_max_dimension")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1920),
+            image_jpeg_quality: self
+                .get_setting("image_jpeg_quality")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(82),
+            image_compress_min_kb: self
+                .get_setting("image_compress_min_kb")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(512),
+            enable_image_ocr: self.bool_setting("enable_image_ocr", false),
+            mask_sensitive: self.bool_setting("mask_sensitive", true),
         }
     }
 
@@ -258,6 +279,21 @@ impl Database {
             "trash_retention_hours",
             &settings.trash_retention_hours.to_string(),
         )?;
+        self.set_bool("compress_images", settings.compress_images)?;
+        self.set_setting(
+            "image_max_dimension",
+            &settings.image_max_dimension.to_string(),
+        )?;
+        self.set_setting(
+            "image_jpeg_quality",
+            &settings.image_jpeg_quality.to_string(),
+        )?;
+        self.set_setting(
+            "image_compress_min_kb",
+            &settings.image_compress_min_kb.to_string(),
+        )?;
+        self.set_bool("enable_image_ocr", settings.enable_image_ocr)?;
+        self.set_bool("mask_sensitive", settings.mask_sensitive)?;
         Ok(())
     }
 
@@ -382,7 +418,8 @@ impl Database {
         let category_sql = category_where_clause(&filters.category);
         let mut sql = format!(
             "SELECT id, content_type, content_text, content_blob IS NOT NULL,
-                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
+                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at,
+                    (COALESCE(ocr_text, '') != '') AS has_ocr
              FROM clips WHERE ({category_sql}) AND deleted_at IS NULL"
         );
         let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -400,7 +437,8 @@ impl Database {
 
         if let Some(ref text) = filters.text_query {
             if crate::search::query_has_cjk(text) {
-                sql.push_str(" AND content_text LIKE ?");
+                sql.push_str(" AND (content_text LIKE ? OR COALESCE(ocr_text, '') LIKE ?)");
+                params_vec.push(Box::new(format!("%{}%", text)));
                 params_vec.push(Box::new(format!("%{}%", text)));
             } else {
                 sql.push_str(
@@ -538,6 +576,10 @@ impl Database {
                 |row| row.get(0),
             )
             .unwrap_or(0);
+        drop(conn);
+        let db_bytes = Self::database_files_bytes(&self.data_dir);
+        let media_bytes = backup::dir_size(&self.data_dir.join("images"))
+            + backup::dir_size(&self.data_dir.join("thumbs"));
         let disk_bytes = backup::dir_size(self.data_dir());
         Ok(HistoryStats {
             total_clips,
@@ -546,6 +588,8 @@ impl Database {
             file_count,
             disk_bytes,
             trash_count,
+            db_bytes,
+            media_bytes,
         })
     }
 
@@ -586,7 +630,8 @@ impl Database {
         let conn = self.conn.lock();
         conn.query_row(
             "SELECT id, content_type, content_text, content_blob IS NOT NULL,
-                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
+                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at,
+                    (COALESCE(ocr_text, '') != '') AS has_ocr
              FROM clips WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
             row_to_clip,
@@ -660,7 +705,8 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT id, content_type, content_text, content_blob IS NOT NULL,
-                        thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
+                        thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at,
+                        (COALESCE(ocr_text, '') != '') AS has_ocr
                  FROM clips WHERE deleted_at IS NOT NULL
                  ORDER BY deleted_at DESC LIMIT 100",
             )
@@ -688,6 +734,7 @@ impl Database {
             self.permanently_delete_clip(id)?;
             n += 1;
         }
+        let _ = self.reclaim_storage();
         Ok(n)
     }
 
@@ -709,6 +756,9 @@ impl Database {
         for id in ids {
             self.permanently_delete_clip(id)?;
             n += 1;
+        }
+        if n > 0 {
+            let _ = self.reclaim_storage();
         }
         Ok(n)
     }
@@ -900,7 +950,255 @@ impl Database {
 
         let _ = self.purge_expired_trash();
 
+        if removed > 0 {
+            let _ = self.reclaim_storage();
+        }
+
         Ok(removed)
+    }
+
+    pub(crate) fn database_files_bytes(data_dir: &Path) -> u64 {
+        ["clipbox.db", "clipbox.db-wal", "clipbox.db-shm"]
+            .iter()
+            .map(|name| {
+                std::fs::metadata(data_dir.join(name))
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+            })
+            .sum()
+    }
+
+    /// Remove unreferenced image/thumb files and shrink the SQLite database.
+    pub fn reclaim_storage(&self) -> Result<u32, String> {
+        let orphans = self.cleanup_orphan_media()?;
+        let conn = self.conn.lock();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")
+            .map_err(|e| e.to_string())?;
+        Ok(orphans)
+    }
+
+    fn cleanup_orphan_media(&self) -> Result<u32, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT image_path, thumb_path FROM clips")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut referenced = std::collections::HashSet::new();
+        for row in rows.flatten() {
+            if let Some(p) = row.0 {
+                referenced.insert(PathBuf::from(p));
+            }
+            if let Some(p) = row.1 {
+                referenced.insert(PathBuf::from(p));
+            }
+        }
+        drop(stmt);
+        drop(conn);
+
+        let mut removed = 0u32;
+        for sub in ["images", "thumbs"] {
+            let dir = self.data_dir.join(sub);
+            if !dir.is_dir() {
+                continue;
+            }
+            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+                let path = entry.path();
+                if path.is_file() && !referenced.contains(&path) {
+                    if std::fs::remove_file(&path).is_ok() {
+                        removed += 1;
+                    }
+                }
+            }
+        }
+        Ok(removed)
+    }
+
+    pub fn set_clip_ocr_text(&self, id: i64, ocr_text: &str) -> Result<(), String> {
+        let conn = self.conn.lock();
+        let content_text: String = conn
+            .query_row(
+                "SELECT content_text FROM clips WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE clips SET ocr_text = ?1 WHERE id = ?2",
+            params![ocr_text, id],
+        )
+        .map_err(|e| e.to_string())?;
+        fts_remove(&conn, id, &content_text)?;
+        let new_index = fts_index_text(&content_text, Some(ocr_text));
+        conn.execute(
+            "INSERT INTO clips_fts(rowid, content_text) VALUES (?1, ?2)",
+            params![id, new_index],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn clip_image_path(&self, id: i64) -> Result<Option<PathBuf>, String> {
+        let conn = self.conn.lock();
+        let path: Option<String> = conn
+            .query_row(
+                "SELECT image_path FROM clips WHERE id = ?1 AND content_type = 'image' AND deleted_at IS NULL",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(path.map(PathBuf::from))
+    }
+
+    pub fn clip_has_ocr(&self, id: i64) -> Result<bool, String> {
+        let conn = self.conn.lock();
+        let text: Option<String> = conn
+            .query_row(
+                "SELECT ocr_text FROM clips WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
+        Ok(text.map(|t| !t.trim().is_empty()).unwrap_or(false))
+    }
+
+    pub fn list_images_pending_ocr(&self, limit: i32) -> Result<Vec<i64>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM clips
+                 WHERE content_type = 'image' AND deleted_at IS NULL
+                   AND image_path IS NOT NULL
+                   AND COALESCE(ocr_text, '') = ''
+                 ORDER BY last_used_at DESC
+                 LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let ids = stmt
+            .query_map(params![limit], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
+    pub fn active_clip_count(&self) -> Result<i64, String> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn trash_count(&self) -> Result<i64, String> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn referenced_media_paths(&self) -> Result<std::collections::HashSet<PathBuf>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT image_path, thumb_path FROM clips")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut referenced = std::collections::HashSet::new();
+        for row in rows.flatten() {
+            if let Some(p) = row.0 {
+                referenced.insert(PathBuf::from(p));
+            }
+            if let Some(p) = row.1 {
+                referenced.insert(PathBuf::from(p));
+            }
+        }
+        Ok(referenced)
+    }
+
+    pub fn trash_media_paths(&self) -> Result<Vec<PathBuf>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT image_path, thumb_path FROM clips WHERE deleted_at IS NOT NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut paths = Vec::new();
+        for row in rows.flatten() {
+            if let Some(p) = row.0 {
+                paths.push(PathBuf::from(p));
+            }
+            if let Some(p) = row.1 {
+                paths.push(PathBuf::from(p));
+            }
+        }
+        Ok(paths)
+    }
+
+    pub fn clip_media_sizes(&self) -> Result<Vec<(i64, String, String, u64)>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, content_type, content_text, image_path, thumb_path
+                 FROM clips WHERE deleted_at IS NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows.flatten() {
+            let (id, ctype, text, img, thumb) = row;
+            let mut bytes = 0u64;
+            for path in [img, thumb].into_iter().flatten() {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    bytes += meta.len();
+                }
+            }
+            let preview = if ctype == "image" {
+                "[图片]".to_string()
+            } else {
+                text.chars().take(40).collect()
+            };
+            out.push((id, ctype, preview, bytes));
+        }
+        Ok(out)
     }
 
     pub fn list_snippets(&self) -> Result<Vec<Snippet>, String> {
@@ -1019,5 +1317,15 @@ fn row_to_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipItem> {
         source_app: row.get(6)?,
         created_at: row.get(7)?,
         last_used_at: row.get(8)?,
+        has_ocr: row.get::<_, i32>(9)? == 1,
     })
+}
+
+fn fts_index_text(content_text: &str, ocr_text: Option<&str>) -> String {
+    let ocr = ocr_text.unwrap_or("").trim();
+    if ocr.is_empty() {
+        content_text.to_string()
+    } else {
+        format!("{content_text} {ocr}")
+    }
 }

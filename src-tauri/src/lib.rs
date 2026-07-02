@@ -6,11 +6,14 @@ mod commands;
 mod config;
 mod db;
 mod hotkey;
+mod image_store;
 mod models;
 mod notifications;
+mod ocr;
 mod search;
 mod source_app;
 mod state;
+mod storage;
 
 use clipboard::ClipboardMonitor;
 use commands::spawn_cleanup_loop;
@@ -51,6 +54,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
@@ -142,6 +147,11 @@ pub fn run() {
             commands::list_trash_clips,
             commands::empty_trash,
             commands::merge_duplicate_clips,
+            commands::get_storage_details,
+            commands::reclaim_storage,
+            commands::open_data_folder,
+            commands::ocr_clip,
+            commands::ocr_backfill,
             commands::clear_history,
             commands::paste_item,
             commands::copy_item_to_clipboard,

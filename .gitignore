@@ -16,6 +16,10 @@ src-tauri/target/
 # Tauri generated
 src-tauri/gen/schemas/
 
+# Tauri updater signing (never commit private key)
+src-tauri/.tauri-signing.key
+src-tauri/.tauri-signing.key.pub
+
 # Logs
 *.log
 npm-debug.log*

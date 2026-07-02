@@ -3,8 +3,6 @@ use crate::db::Database;
 use crate::models::ContentType;
 use crate::source_app::{detect_file_paths, resolve_source_app};
 use arboard::Clipboard;
-use image::imageops::FilterType;
-use image::ImageEncoder;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -110,7 +108,7 @@ impl ClipboardMonitor {
 
                 match poll_clipboard(
                     &mut clipboard,
-                    &db,
+                    Arc::clone(&db),
                     &images_dir,
                     &thumbs_dir,
                     config.dedupe,
@@ -164,7 +162,7 @@ fn record_source() -> Option<String> {
 
 fn poll_clipboard(
     clipboard: &mut Clipboard,
-    db: &Database,
+    db: Arc<Database>,
     images_dir: &PathBuf,
     thumbs_dir: &PathBuf,
     dedupe: bool,
@@ -201,7 +199,7 @@ fn poll_clipboard(
                     None,
                     source.as_deref(),
                 )?;
-                cache_source_icon(db, &source);
+                cache_source_icon(&db, &source);
                 *last_hash.lock() = Some(hash);
                 return Ok(Some(id));
             }
@@ -217,7 +215,7 @@ fn poll_clipboard(
                 return Ok(None);
             }
             let id = db.insert_clip(content_type, &text, None, None, source.as_deref())?;
-            cache_source_icon(db, &source);
+            cache_source_icon(&db, &source);
             *last_hash.lock() = Some(hash);
             return Ok(Some(id));
         }
@@ -239,46 +237,35 @@ fn poll_clipboard(
             return Ok(None);
         }
 
-        let png_bytes = encode_png(&rgba, width, height)?;
-        let stamp = chrono::Utc::now().timestamp_millis();
-        let filename = format!("{stamp}.png");
-        let path = images_dir.join(&filename);
-        std::fs::write(&path, &png_bytes).map_err(|e| e.to_string())?;
-
-        let thumb_filename = format!("{stamp}_thumb.jpg");
-        let thumb_path = thumbs_dir.join(&thumb_filename);
-        save_thumbnail(&png_bytes, &thumb_path)?;
+        let settings = db.get_settings();
+        let (saved, thumb_path) = crate::image_store::save_clipboard_image(
+            &rgba,
+            width,
+            height,
+            images_dir,
+            thumbs_dir,
+            &settings,
+        )?;
 
         let id = db.insert_clip(
             ContentType::Image,
             "[图片]",
-            Some(&path.to_string_lossy()),
+            Some(&saved.path.to_string_lossy()),
             Some(&thumb_path.to_string_lossy()),
             source.as_deref(),
         )?;
-        cache_source_icon(db, &source);
-        *last_hash.lock() = Some(hash);
+        cache_source_icon(&db, &source);
+        *last_hash.lock() = Some(content_hash("image", &saved.hash_sample));
+
+        #[cfg(windows)]
+        if settings.enable_image_ocr {
+            crate::ocr::spawn_ocr_job(Arc::clone(&db), id, saved.path.clone());
+        }
+
         return Ok(Some(id));
     }
 
     Ok(None)
-}
-
-fn save_thumbnail(png_bytes: &[u8], thumb_path: &PathBuf) -> Result<(), String> {
-    let img = image::load_from_memory(png_bytes).map_err(|e| e.to_string())?;
-    let thumb = img.resize(48, 48, FilterType::Triangle).into_rgb8();
-    let mut buf = Vec::new();
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 75);
-    encoder
-        .write_image(
-            thumb.as_raw(),
-            thumb.width(),
-            thumb.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-        .map_err(|e| e.to_string())?;
-    std::fs::write(thumb_path, buf).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 fn detect_content_type(text: &str) -> ContentType {
@@ -303,15 +290,6 @@ fn content_hash(kind: &str, content: &str) -> String {
 
 fn is_duplicate(last_hash: &Mutex<Option<String>>, hash: &str) -> bool {
     last_hash.lock().as_deref() == Some(hash)
-}
-
-fn encode_png(rgba: &[u8], width: usize, height: usize) -> Result<Vec<u8>, String> {
-    let mut buf = Vec::new();
-    let encoder = image::codecs::png::PngEncoder::new(&mut buf);
-    encoder
-        .write_image(rgba, width as u32, height as u32, image::ExtendedColorType::Rgba8)
-        .map_err(|e| e.to_string())?;
-    Ok(buf)
 }
 
 pub fn strip_html(html: &str) -> String {

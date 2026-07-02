@@ -32,7 +32,7 @@ interface GroupOptions {
 }
 
 const highlightCache = new Map<number, Highlight[]>();
-const HIGHLIGHT_CACHE_MAX = 80;
+const HIGHLIGHT_CACHE_MAX = 48;
 
 export function clearHighlightCache() {
   highlightCache.clear();
