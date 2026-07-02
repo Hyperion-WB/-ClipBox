@@ -1,17 +1,53 @@
-import { confirm } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import { api } from "$lib/api";
+
+const RELEASES_REPO = "Hyperion-WB/-ClipBox";
+export const RELEASE_PAGE = `https://github.com/${RELEASES_REPO}/releases/latest`;
 
 export type UpdateCheckResult =
   | { status: "latest" }
-  | { status: "available"; update: Update }
+  | { status: "available"; version: string; url: string }
   | { status: "error"; message: string };
 
-export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
+function parseVersion(v: string): number[] {
+  return v
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => parseInt(part, 10) || 0);
+}
+
+function isNewer(latest: string, current: string): boolean {
+  const a = parseVersion(latest);
+  const b = parseVersion(current);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return false;
+}
+
+export async function checkForAppUpdate(currentVersion: string): Promise<UpdateCheckResult> {
   try {
-    const update = await check();
-    if (update) {
-      return { status: "available", update };
+    const res = await fetch(
+      `https://api.github.com/repos/${RELEASES_REPO}/releases/latest`,
+      { headers: { Accept: "application/vnd.github+json" } },
+    );
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status}`);
+    }
+    const data = (await res.json()) as { tag_name?: string; html_url?: string };
+    const tag = data.tag_name?.trim();
+    if (!tag) {
+      throw new Error("invalid release response");
+    }
+    if (isNewer(tag, currentVersion)) {
+      return {
+        status: "available",
+        version: tag.replace(/^v/i, ""),
+        url: data.html_url ?? RELEASE_PAGE,
+      };
     }
     return { status: "latest" };
   } catch (err) {
@@ -20,38 +56,6 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
   }
 }
 
-export async function installAppUpdate(
-  update: Update,
-  onProgress?: (percent: number) => void,
-): Promise<void> {
-  let total = 0;
-  let downloaded = 0;
-
-  await update.downloadAndInstall((event: DownloadEvent) => {
-    if (event.event === "Started") {
-      total = event.data.contentLength ?? 0;
-      downloaded = 0;
-      onProgress?.(0);
-    } else if (event.event === "Progress") {
-      downloaded += event.data.chunkLength;
-      if (total > 0) {
-        onProgress?.(Math.min(99, Math.round((downloaded / total) * 100)));
-      }
-    } else if (event.event === "Finished") {
-      onProgress?.(100);
-    }
-  });
-
-  await relaunch();
-}
-
-export async function confirmAndInstallUpdate(
-  update: Update,
-  prompt: string,
-  onProgress?: (percent: number) => void,
-): Promise<"installed" | "cancelled"> {
-  const ok = await confirm(prompt, { title: "ClipBox", kind: "info" });
-  if (!ok) return "cancelled";
-  await installAppUpdate(update, onProgress);
-  return "installed";
+export async function openReleaseDownload(url?: string): Promise<void> {
+  await api.openUrl(url ?? RELEASE_PAGE);
 }

@@ -5,9 +5,8 @@
   import { setLocale, t } from "$lib/i18n.svelte";
   import type { AppLocale, AppSettings, HistoryStats, StorageDetails } from "$lib/types";
   import { applyTheme } from "$lib/theme";
-  import { checkForAppUpdate, confirmAndInstallUpdate } from "$lib/updater";
+  import { checkForAppUpdate, openReleaseDownload } from "$lib/updater";
   import { maskForDisplay } from "$lib/sensitiveMask";
-  import type { Update } from "@tauri-apps/plugin-updater";
   import CollapsibleSection from "./CollapsibleSection.svelte";
   import HotkeyInput from "./HotkeyInput.svelte";
   import Select from "./Select.svelte";
@@ -40,9 +39,8 @@
   let message = $state("");
   let recentNotifs = $state<{ id: number; preview: string }[]>([]);
   let appVersion = $state("0.1.2");
-  let pendingUpdate = $state<Update | null>(null);
+  let pendingRelease = $state<{ version: string; url: string } | null>(null);
   let updateBusy = $state(false);
-  let downloadPercent = $state(0);
   let dbLabel = $state("");
   let mediaLabel = $state("");
   let storageDetails = $state<StorageDetails | null>(null);
@@ -218,15 +216,15 @@
 
   async function checkUpdate() {
     updateBusy = true;
-    pendingUpdate = null;
+    pendingRelease = null;
     message = t("settings.updateChecking");
     try {
-      const result = await checkForAppUpdate();
+      const result = await checkForAppUpdate(appVersion);
       if (result.status === "latest") {
         message = t("settings.updateLatest");
       } else if (result.status === "available") {
-        pendingUpdate = result.update;
-        message = t("settings.updateAvailable", { version: result.update.version });
+        pendingRelease = { version: result.version, url: result.url };
+        message = t("settings.updateAvailable", { version: result.version });
       } else {
         message = t("settings.updateFailed", { error: result.message });
       }
@@ -239,30 +237,10 @@
     }
   }
 
-  async function installUpdate() {
-    if (!pendingUpdate || updateBusy) return;
-    updateBusy = true;
-    downloadPercent = 0;
-    message = t("settings.updateDownloading", { n: 0 });
-    try {
-      const result = await confirmAndInstallUpdate(
-        pendingUpdate,
-        t("settings.updateConfirm", { version: pendingUpdate.version }),
-        (n) => {
-          downloadPercent = n;
-          message = t("settings.updateDownloading", { n });
-        },
-      );
-      if (result === "cancelled") {
-        message = t("settings.updateAvailable", { version: pendingUpdate.version });
-      }
-    } catch (err) {
-      message = t("settings.updateFailed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      updateBusy = false;
-    }
+  async function openRelease() {
+    if (!pendingRelease) return;
+    await openReleaseDownload(pendingRelease.url);
+    message = t("settings.updateOpened");
   }
 </script>
 
@@ -477,16 +455,14 @@
 
     <CollapsibleSection title={t("settings.updateTitle")}>
       <p class="field-hint">{t("settings.versionLine", { version: appVersion })}</p>
+      <p class="field-hint">{t("settings.updateManualHint")}</p>
       <button type="button" class="btn-block" disabled={updateBusy} onclick={checkUpdate}>
-        {updateBusy && !pendingUpdate ? t("settings.updateChecking") : t("settings.updateCheck")}
+        {updateBusy ? t("settings.updateChecking") : t("settings.updateCheck")}
       </button>
-      {#if pendingUpdate}
-        <button type="button" class="btn-block accent" disabled={updateBusy} onclick={installUpdate}>
-          {updateBusy ? t("settings.updateDownloading", { n: downloadPercent }) : t("settings.updateInstall")} ({pendingUpdate.version})
+      {#if pendingRelease}
+        <button type="button" class="btn-block accent" onclick={openRelease}>
+          {t("settings.updateOpenRelease")} (v{pendingRelease.version})
         </button>
-      {/if}
-      {#if updateBusy && downloadPercent > 0}
-        <div class="progress-track"><div class="progress-bar" style:width="{downloadPercent}%"></div></div>
       {/if}
     </CollapsibleSection>
 
@@ -534,8 +510,6 @@
   .btn-block.accent { background: var(--accent); color: white; border-color: var(--accent); }
   .btn-block.accent:hover { filter: brightness(1.05); }
   .btn-block:disabled { opacity: 0.55; cursor: not-allowed; }
-  .progress-track { margin-top: 8px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-  .progress-bar { height: 100%; background: var(--accent); transition: width 0.2s ease; }
   .link-btn { border: none; background: transparent; color: var(--accent); font-size: 12px; padding: 6px 0 0; cursor: pointer; }
   .notif-list { margin-top: 8px; }
   .notif-item { padding: 8px 10px; margin-top: 4px; background: var(--hover); border-radius: 8px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
