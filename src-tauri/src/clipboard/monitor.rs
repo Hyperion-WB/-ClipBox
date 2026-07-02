@@ -257,11 +257,6 @@ fn poll_clipboard(
         cache_source_icon(&db, &source);
         *last_hash.lock() = Some(content_hash("image", &saved.hash_sample));
 
-        #[cfg(windows)]
-        if settings.enable_image_ocr {
-            crate::ocr::spawn_ocr_job(Arc::clone(&db), id, saved.path.clone());
-        }
-
         return Ok(Some(id));
     }
 

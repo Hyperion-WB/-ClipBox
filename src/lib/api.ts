@@ -42,10 +42,6 @@ export const api = {
 
   openDataFolder: () => invoke<void>("open_data_folder"),
 
-  ocrClip: (id: number) => invoke<boolean>("ocr_clip", { id }),
-
-  ocrBackfill: (limit?: number) => invoke<number>("ocr_backfill", { limit: limit ?? null }),
-
   clearHistory: (keepPinned: boolean) =>
     invoke<void>("clear_history", { keepPinned }),
 

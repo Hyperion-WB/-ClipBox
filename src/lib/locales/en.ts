@@ -26,8 +26,10 @@ export const en: Messages = {
     timeOlder: "Earlier",
     pinnedSection: "Pinned",
     imagePreview: "[Image]",
-    ocrIndexed: "Searchable text",
     trashed: "Moved to trash",
+    clearAllConfirm: "Move {n} unpinned items to trash?",
+    clearAllEmpty: "Nothing to clear (pinned items are kept)",
+    clearedToTrash: "Cleared {n} items — empty trash in Settings",
     undo: "Undo",
     restored: "Restored",
     nearLimit: "History near limit ({current}/{max}). Clean up or merge duplicates in Settings.",
@@ -72,7 +74,6 @@ export const en: Messages = {
   clip: {
     pinned: "Pinned",
     typeImage: "Img",
-    ocrRun: "Recognize text in image",
   },
   sensitive: {
     badge: "Sensitive",
@@ -193,12 +194,7 @@ export const en: Messages = {
     imageMaxDimension: "Max edge (px)",
     imageJpegQuality: "JPEG quality",
     imageCompressMinKb: "Compress above (KB)",
-    enableImageOcr: "Screenshot OCR",
-    enableImageOcrHint: "Off by default. When enabled, new screenshots are indexed in the background; use the 文 button on an item to run manually",
     maskSensitive: "Mask sensitive info",
     maskSensitiveHint: "Hide ID numbers, bank cards, phones, OTPs in the list and notifications; paste/copy still uses the original",
-    ocrBackfill: "Backfill OCR for existing images",
-    ocrBackfillDone: "Indexed text for {n} images",
-    ocrBackfillHint: "Batch OCR for images not yet indexed (skips very small images)",
   },
 };

@@ -61,7 +61,6 @@ pub struct ClipItem {
     pub source_app: Option<String>,
     pub created_at: String,
     pub last_used_at: String,
-    pub has_ocr: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,7 +106,6 @@ pub struct AppSettings {
     pub image_max_dimension: i32,
     pub image_jpeg_quality: i32,
     pub image_compress_min_kb: i32,
-    pub enable_image_ocr: bool,
     pub mask_sensitive: bool,
 }
 
@@ -146,7 +144,6 @@ impl Default for AppSettings {
             image_max_dimension: 1920,
             image_jpeg_quality: 82,
             image_compress_min_kb: 512,
-            enable_image_ocr: false,
             mask_sensitive: true,
         }
     }

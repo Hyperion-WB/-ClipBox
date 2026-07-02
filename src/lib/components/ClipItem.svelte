@@ -23,7 +23,6 @@
     highlights?: Highlight[];
     maskSensitive?: boolean;
     revealed?: boolean;
-    ocrEnabled?: boolean;
     onSelect: (e: MouseEvent) => void;
     onContextMenu: (e: MouseEvent) => void;
     onPin: () => void;
@@ -35,7 +34,6 @@
     onSaveImage?: () => void;
     onFormatPaste?: () => void;
     onToggleReveal?: () => void;
-    onOcrClip?: () => void;
   }
 
   let {
@@ -48,7 +46,6 @@
     highlights = [],
     maskSensitive = true,
     revealed = false,
-    ocrEnabled = false,
     onSelect,
     onContextMenu,
     onPin,
@@ -60,7 +57,6 @@
     onSaveImage,
     onFormatPaste,
     onToggleReveal,
-    onOcrClip,
   }: Props = $props();
 
   const expanded = $derived(highlights.length > 0);
@@ -155,9 +151,6 @@
       {:else if item.source_app}
         <SourceBadge name={item.source_app} />
       {/if}
-      {#if item.content_type === "image" && item.has_ocr}
-        <span class="ocr-badge" title={t("history.ocrIndexed")}>文</span>
-      {/if}
     </div>
   </div>
 
@@ -184,13 +177,6 @@
     {/if}
     {#if item.content_type === "image" && onSaveImage}
       <button class="action-btn" title={t("menu.saveImageTitle")} onclick={(e) => { e.stopPropagation(); onSaveImage(); }}>↓</button>
-    {/if}
-    {#if item.content_type === "image" && ocrEnabled && onOcrClip && !item.has_ocr}
-      <button
-        class="action-btn ocr"
-        title={t("clip.ocrRun")}
-        onclick={(e) => { e.stopPropagation(); onOcrClip(); }}
-      >文</button>
     {/if}
     {#if item.content_type === "html"}
       <button class="action-btn" title={t("menu.pastePlain")} onclick={(e) => { e.stopPropagation(); onPastePlain(); }}>¶</button>
@@ -382,17 +368,6 @@
     line-height: 1.5;
   }
 
-  .ocr-badge {
-    display: inline-block;
-    margin-top: 2px;
-    padding: 0 5px;
-    font-size: 10px;
-    border-radius: 4px;
-    background: var(--badge-bg);
-    color: var(--accent);
-    line-height: 1.5;
-  }
-
   .text {
     font-size: 13px;
     color: var(--text);
@@ -516,14 +491,8 @@
     display: block;
   }
 
-  .action-btn.reveal,
-  .action-btn.ocr {
+  .action-btn.reveal {
     font-size: 10px;
-  }
-
-  .action-btn.ocr {
-    color: var(--accent);
-    font-weight: 600;
   }
 
   input[type="checkbox"] {

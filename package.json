@@ -1,6 +1,6 @@
 {
   "name": "clipbox",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "ClipBox — 轻量、本地优先的剪贴板工具箱 / Lightweight local-first clipboard toolbox",
   "type": "module",
   "scripts": {

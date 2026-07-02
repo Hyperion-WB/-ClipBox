@@ -97,24 +97,6 @@ pub fn reclaim_storage(state: State<'_, AppState>) -> Result<u32, String> {
 }
 
 #[tauri::command]
-pub fn ocr_clip(state: State<'_, AppState>, id: i64) -> Result<bool, String> {
-    crate::ocr::run_ocr_for_clip(&state.db, id, true)
-}
-
-#[tauri::command]
-pub fn ocr_backfill(state: State<'_, AppState>, limit: Option<i32>) -> Result<u32, String> {
-    let limit = limit.unwrap_or(50).clamp(1, 200);
-    let ids = state.db.list_images_pending_ocr(limit)?;
-    let mut done = 0u32;
-    for id in ids {
-        if crate::ocr::run_ocr_for_clip(&state.db, id, false)? {
-            done += 1;
-        }
-    }
-    Ok(done)
-}
-
-#[tauri::command]
 pub fn open_data_folder(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     let dir = state.db.data_dir().to_string_lossy().to_string();

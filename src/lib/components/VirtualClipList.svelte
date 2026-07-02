@@ -11,7 +11,6 @@
     multiSelectMode: boolean;
     maskSensitive?: boolean;
     revealedIds?: Set<number>;
-    ocrEnabled?: boolean;
     onSaveImage?: (id: number) => void;
     onSelect: (rowIndex: number, e: MouseEvent) => void;
     onContextMenu: (rowIndex: number, e: MouseEvent) => void;
@@ -23,7 +22,6 @@
     onOpenPath: (path: string) => void;
     onOpenUrl: (url: string) => void;
     onToggleReveal?: (id: number) => void;
-    onOcrClip?: (id: number) => void;
     panelOpen?: boolean;
   }
 
@@ -34,7 +32,6 @@
     multiSelectMode,
     maskSensitive = true,
     revealedIds = new Set<number>(),
-    ocrEnabled = false,
     onSaveImage,
     onSelect,
     onContextMenu,
@@ -46,7 +43,6 @@
     onOpenPath,
     onOpenUrl,
     onToggleReveal,
-    onOcrClip,
     panelOpen = false,
   }: Props = $props();
 
@@ -171,7 +167,6 @@
               {multiSelectMode}
               {maskSensitive}
               revealed={revealedIds.has(row.item.id)}
-              {ocrEnabled}
               onSaveImage={row.item.content_type === "image" && onSaveImage
                 ? () => onSaveImage(row.item.id)
                 : undefined}
@@ -183,7 +178,6 @@
               onPasteSegment={onPasteSegment}
               onFormatPaste={() => onFormatPaste(row.clipIndex)}
               onToggleReveal={onToggleReveal ? () => onToggleReveal(row.item.id) : undefined}
-              onOcrClip={onOcrClip ? () => onOcrClip(row.item.id) : undefined}
               {onOpenPath}
               {onOpenUrl}
             />

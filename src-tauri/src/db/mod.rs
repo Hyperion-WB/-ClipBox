@@ -71,7 +71,6 @@ impl Database {
             ("image_max_dimension", "1920"),
             ("image_jpeg_quality", "82"),
             ("image_compress_min_kb", "512"),
-            ("enable_image_ocr", "false"),
             ("mask_sensitive", "true"),
         ];
         let conn = self.conn.lock();
@@ -203,7 +202,6 @@ impl Database {
                 .get_setting("image_compress_min_kb")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(512),
-            enable_image_ocr: self.bool_setting("enable_image_ocr", false),
             mask_sensitive: self.bool_setting("mask_sensitive", true),
         }
     }
@@ -292,7 +290,6 @@ impl Database {
             "image_compress_min_kb",
             &settings.image_compress_min_kb.to_string(),
         )?;
-        self.set_bool("enable_image_ocr", settings.enable_image_ocr)?;
         self.set_bool("mask_sensitive", settings.mask_sensitive)?;
         Ok(())
     }
@@ -418,8 +415,7 @@ impl Database {
         let category_sql = category_where_clause(&filters.category);
         let mut sql = format!(
             "SELECT id, content_type, content_text, content_blob IS NOT NULL,
-                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at,
-                    (COALESCE(ocr_text, '') != '') AS has_ocr
+                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
              FROM clips WHERE ({category_sql}) AND deleted_at IS NULL"
         );
         let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -437,8 +433,7 @@ impl Database {
 
         if let Some(ref text) = filters.text_query {
             if crate::search::query_has_cjk(text) {
-                sql.push_str(" AND (content_text LIKE ? OR COALESCE(ocr_text, '') LIKE ?)");
-                params_vec.push(Box::new(format!("%{}%", text)));
+                sql.push_str(" AND content_text LIKE ?");
                 params_vec.push(Box::new(format!("%{}%", text)));
             } else {
                 sql.push_str(
@@ -630,8 +625,7 @@ impl Database {
         let conn = self.conn.lock();
         conn.query_row(
             "SELECT id, content_type, content_text, content_blob IS NOT NULL,
-                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at,
-                    (COALESCE(ocr_text, '') != '') AS has_ocr
+                    thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
              FROM clips WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
             row_to_clip,
@@ -705,8 +699,7 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT id, content_type, content_text, content_blob IS NOT NULL,
-                        thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at,
-                        (COALESCE(ocr_text, '') != '') AS has_ocr
+                        thumb_path IS NOT NULL, pinned, source_app, created_at, last_used_at
                  FROM clips WHERE deleted_at IS NOT NULL
                  ORDER BY deleted_at DESC LIMIT 100",
             )
@@ -1020,77 +1013,6 @@ impl Database {
         Ok(removed)
     }
 
-    pub fn set_clip_ocr_text(&self, id: i64, ocr_text: &str) -> Result<(), String> {
-        let conn = self.conn.lock();
-        let content_text: String = conn
-            .query_row(
-                "SELECT content_text FROM clips WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        conn.execute(
-            "UPDATE clips SET ocr_text = ?1 WHERE id = ?2",
-            params![ocr_text, id],
-        )
-        .map_err(|e| e.to_string())?;
-        fts_remove(&conn, id, &content_text)?;
-        let new_index = fts_index_text(&content_text, Some(ocr_text));
-        conn.execute(
-            "INSERT INTO clips_fts(rowid, content_text) VALUES (?1, ?2)",
-            params![id, new_index],
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    pub fn clip_image_path(&self, id: i64) -> Result<Option<PathBuf>, String> {
-        let conn = self.conn.lock();
-        let path: Option<String> = conn
-            .query_row(
-                "SELECT image_path FROM clips WHERE id = ?1 AND content_type = 'image' AND deleted_at IS NULL",
-                params![id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        Ok(path.map(PathBuf::from))
-    }
-
-    pub fn clip_has_ocr(&self, id: i64) -> Result<bool, String> {
-        let conn = self.conn.lock();
-        let text: Option<String> = conn
-            .query_row(
-                "SELECT ocr_text FROM clips WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?
-            .flatten();
-        Ok(text.map(|t| !t.trim().is_empty()).unwrap_or(false))
-    }
-
-    pub fn list_images_pending_ocr(&self, limit: i32) -> Result<Vec<i64>, String> {
-        let conn = self.conn.lock();
-        let mut stmt = conn
-            .prepare(
-                "SELECT id FROM clips
-                 WHERE content_type = 'image' AND deleted_at IS NULL
-                   AND image_path IS NOT NULL
-                   AND COALESCE(ocr_text, '') = ''
-                 ORDER BY last_used_at DESC
-                 LIMIT ?1",
-            )
-            .map_err(|e| e.to_string())?;
-        let ids = stmt
-            .query_map(params![limit], |row| row.get(0))
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(ids)
-    }
-
     pub fn active_clip_count(&self) -> Result<i64, String> {
         let conn = self.conn.lock();
         conn.query_row(
@@ -1317,15 +1239,5 @@ fn row_to_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipItem> {
         source_app: row.get(6)?,
         created_at: row.get(7)?,
         last_used_at: row.get(8)?,
-        has_ocr: row.get::<_, i32>(9)? == 1,
     })
-}
-
-fn fts_index_text(content_text: &str, ocr_text: Option<&str>) -> String {
-    let ocr = ocr_text.unwrap_or("").trim();
-    if ocr.is_empty() {
-        content_text.to_string()
-    } else {
-        format!("{content_text} {ocr}")
-    }
 }

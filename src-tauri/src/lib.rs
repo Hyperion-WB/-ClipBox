@@ -9,7 +9,6 @@ mod hotkey;
 mod image_store;
 mod models;
 mod notifications;
-mod ocr;
 mod search;
 mod source_app;
 mod state;
@@ -148,8 +147,6 @@ pub fn run() {
             commands::get_storage_details,
             commands::reclaim_storage,
             commands::open_data_folder,
-            commands::ocr_clip,
-            commands::ocr_backfill,
             commands::clear_history,
             commands::paste_item,
             commands::copy_item_to_clipboard,

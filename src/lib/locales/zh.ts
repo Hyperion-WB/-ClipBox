@@ -24,8 +24,10 @@ export const zh = {
     timeOlder: "更早",
     pinnedSection: "置顶",
     imagePreview: "[图片]",
-    ocrIndexed: "可搜文字",
     trashed: "已移至回收站",
+    clearAllConfirm: "将 {n} 条未置顶记录移入回收站？",
+    clearAllEmpty: "没有可清除的记录（置顶项会保留）",
+    clearedToTrash: "已清除 {n} 条，可在设置中清空回收站",
     undo: "撤销",
     restored: "已恢复",
     nearLimit: "历史接近上限（{current}/{max}），可在设置中清理或合并重复项",
@@ -70,7 +72,6 @@ export const zh = {
   clip: {
     pinned: "已置顶",
     typeImage: "图",
-    ocrRun: "识别图中文字",
   },
   sensitive: {
     badge: "敏感",
@@ -191,13 +192,8 @@ export const zh = {
     imageMaxDimension: "压缩最长边（像素）",
     imageJpegQuality: "JPEG 质量",
     imageCompressMinKb: "超过多少 KB 才压缩",
-    enableImageOcr: "截图文字识别（OCR）",
-    enableImageOcrHint: "默认关闭。开启后对新截图后台识别，可搜索图中文字；也可在条目上手动点「文」",
     maskSensitive: "敏感信息自动打码",
     maskSensitiveHint: "列表与通知中隐藏身份证、银行卡、手机号、验证码等；粘贴/复制仍使用原文",
-    ocrBackfill: "补全已有图片 OCR",
-    ocrBackfillDone: "已为 {n} 张图片建立文字索引",
-    ocrBackfillHint: "对历史中尚未识别的图片批量识别（跳过过小图片）",
   },
 } as const;
 

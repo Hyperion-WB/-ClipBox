@@ -50,6 +50,7 @@
 
   import { applyTheme, watchSystemTheme } from "$lib/theme";
   import { dragWindow } from "$lib/window";
+  import { confirm } from "@tauri-apps/plugin-dialog";
   import {
     formatCode,
     formatJson,
@@ -60,9 +61,10 @@
   import { setLocale, t } from "$lib/i18n.svelte";
   type Tab = "history" | "snippets" | "settings";
 
-
+  const TAB_ORDER: Record<Tab, number> = { history: 0, snippets: 1, settings: 2 };
 
   let activeTab = $state<Tab>("history");
+  let tabDir = $state(1);
 
   let clips = $state<ClipItem[]>([]);
 
@@ -201,9 +203,9 @@
 
   async function loadStats() {
 
-    stats = await api.getHistoryStats();
+    const data = await api.getHistoryStats();
 
-    if (stats) diskLabel = await api.formatDiskSize(stats.disk_bytes);
+    await applyStats(data);
 
   }
 
@@ -216,9 +218,40 @@
     revealedIds = next;
   }
 
-  async function runOcrForClip(id: number) {
-    const ok = await api.ocrClip(id);
-    if (ok) await loadClips();
+  function switchTab(tab: Tab) {
+    tabDir = TAB_ORDER[tab] >= TAB_ORDER[activeTab] ? 1 : -1;
+    activeTab = tab;
+    if (tab === "history" && panelOpen) loadClips();
+    if (tab === "snippets" && panelOpen) loadSnippets();
+  }
+
+  async function applyStats(statsData: HistoryStats) {
+    stats = statsData;
+    diskLabel = await api.formatDiskSize(statsData.disk_bytes);
+  }
+
+  async function clearAllHistory() {
+    const count = stats
+      ? Math.max(0, stats.total_clips - stats.pinned_clips)
+      : flatClips.filter((c) => !c.pinned).length;
+    if (count === 0) {
+      toast = t("history.clearAllEmpty");
+      setTimeout(() => (toast = ""), 2000);
+      return;
+    }
+    const ok = await confirm(t("history.clearAllConfirm", { n: count }), {
+      title: "ClipBox",
+      kind: "warning",
+    });
+    if (!ok) return;
+    await api.clearHistory(true);
+    selectedClipIndex = 0;
+    selectedRowIndex = 0;
+    selectedIds = new Set();
+    multiSelectMode = false;
+    await refreshPanelData();
+    toast = t("history.clearedToTrash", { n: count });
+    setTimeout(() => (toast = ""), 2500);
   }
 
 
@@ -282,16 +315,6 @@
     toast = t("history.restored");
 
     setTimeout(() => (toast = ""), 2000);
-
-    await refreshPanelData();
-
-  }
-
-
-
-  async function clearAllKeepPinned() {
-
-    await api.clearHistory(true);
 
     await refreshPanelData();
 
@@ -946,7 +969,7 @@
 
       onTogglePause={async (p) => { await api.setMonitorPaused(p); paused = p; }}
 
-      onClose={() => (activeTab = "history")}
+      onClose={() => switchTab("history")}
 
       onExport={async (path) => api.exportBackup(path)}
 
@@ -958,6 +981,7 @@
 
       onCleanup={async () => { const n = await api.runCleanup(); await refreshPanelData(); return n; }}
       onDataChanged={refreshPanelData}
+      onStatsChange={applyStats}
 
     />
 
@@ -979,9 +1003,9 @@
 
       onPasteSnippet={async (s) => { await api.pasteSnippet(s.content); }}
 
-      onClearHistory={clearAllKeepPinned}
+      onClearHistory={clearAllHistory}
 
-      onOpenSettings={() => (activeTab = "settings")}
+      onOpenSettings={() => switchTab("settings")}
 
       onClipContextMenu={(item, e) => {
 
@@ -1001,19 +1025,19 @@
 
   <div class="tabs" data-tauri-drag-region="false">
 
-    <button class:active={activeTab === "history"} onclick={() => { activeTab = "history"; if (panelOpen) loadClips(); }}>
+    <button class:active={activeTab === "history"} onclick={() => switchTab("history")}>
 
       {t("tabs.history")}
 
     </button>
 
-    <button class:active={activeTab === "snippets"} onclick={() => { activeTab = "snippets"; if (panelOpen) loadSnippets(); }}>
+    <button class:active={activeTab === "snippets"} onclick={() => switchTab("snippets")}>
 
       {t("tabs.snippets")}
 
     </button>
 
-    <button class:active={activeTab === "settings"} onclick={() => (activeTab = "settings")}>
+    <button class:active={activeTab === "settings"} onclick={() => switchTab("settings")}>
 
       {t("tabs.settings")}
 
@@ -1023,7 +1047,11 @@
 
 
 
+  <div class="tab-viewport">
+
   {#if activeTab === "history"}
+
+    <div class="tab-panel" class:from-left={tabDir < 0} class:from-right={tabDir > 0}>
 
     <div class="history-toolbar" data-tauri-drag-region="false">
       {#if stats}
@@ -1031,7 +1059,7 @@
           {t("history.stats", { total: stats.total_clips, pinned: stats.pinned_clips, images: stats.image_count, files: stats.file_count, disk: diskLabel })}
         </span>
       {/if}
-      <button type="button" class="clear-btn" onclick={clearAllKeepPinned}>{t("history.clearAll")}</button>
+      <button type="button" class="clear-btn" onclick={clearAllHistory}>{t("history.clearAll")}</button>
     </div>
 
     {#if nearHistoryLimit && settings}
@@ -1098,8 +1126,6 @@
 
         {revealedIds}
 
-        ocrEnabled={settings?.enable_image_ocr ?? false}
-
         onSaveImage={(id) => { const item = flatClips.find((c) => c.id === id); if (item) saveImageToFolder(item); }}
 
         onSelect={handleItemSelect}
@@ -1133,13 +1159,15 @@
 
         onToggleReveal={toggleReveal}
 
-        onOcrClip={runOcrForClip}
-
       />
 
     </div>
 
+    </div>
+
   {:else if activeTab === "snippets"}
+
+    <div class="tab-panel" class:from-left={tabDir < 0} class:from-right={tabDir > 0}>
 
     <SnippetTab
 
@@ -1161,7 +1189,11 @@
 
     />
 
+    </div>
+
   {:else if settings}
+
+    <div class="tab-panel" class:from-left={tabDir < 0} class:from-right={tabDir > 0}>
 
     <SettingsPanel
 
@@ -1177,7 +1209,7 @@
 
       onTogglePause={async (p) => { await api.setMonitorPaused(p); paused = p; }}
 
-      onClose={() => (activeTab = "history")}
+      onClose={() => switchTab("history")}
 
       onExport={async (path) => api.exportBackup(path)}
 
@@ -1189,10 +1221,15 @@
 
       onCleanup={async () => { const n = await api.runCleanup(); await refreshPanelData(); return n; }}
       onDataChanged={refreshPanelData}
+      onStatsChange={applyStats}
 
     />
 
+    </div>
+
   {/if}
+
+  </div>
 
 
 
@@ -1471,6 +1508,50 @@
 
     font-weight: 500;
 
+  }
+
+
+
+  .tab-viewport {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .tab-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    --tab-from-x: 0px;
+    animation: tab-enter 240ms linear both;
+  }
+
+  .tab-panel.from-right {
+    --tab-from-x: 14px;
+  }
+
+  .tab-panel.from-left {
+    --tab-from-x: -14px;
+  }
+
+  @keyframes tab-enter {
+    from {
+      opacity: 0;
+      transform: translateX(var(--tab-from-x));
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tab-panel {
+      animation: none;
+    }
   }
 
 

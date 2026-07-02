@@ -27,12 +27,13 @@
     onClearHistory: (keepPinned: boolean) => Promise<void>;
     onCleanup: () => Promise<number>;
     onDataChanged?: () => Promise<void>;
+    onStatsChange?: (stats: HistoryStats) => void | Promise<void>;
   }
 
   let {
     settings, stats, diskLabel, paused,
     onSave, onTogglePause, onClose,
-    onExport, onImport, onMigrate, onClearHistory, onCleanup, onDataChanged,
+    onExport, onImport, onMigrate, onClearHistory, onCleanup, onDataChanged, onStatsChange,
   }: Props = $props();
 
   let draft = $state<AppSettings>({ ...settings });
@@ -193,13 +194,10 @@
   async function emptyTrashBin() {
     const n = await api.emptyTrash();
     message = t("settings.emptiedTrash", { n });
+    const freshStats = await api.getHistoryStats();
+    await onStatsChange?.(freshStats);
     await onDataChanged?.();
-  }
-
-  async function backfillOcr() {
-    const n = await api.ocrBackfill(50);
-    message = t("settings.ocrBackfillDone", { n });
-    await onDataChanged?.();
+    if (storageLoaded) await loadStorageDetails();
   }
 
   async function exportData() {
@@ -414,13 +412,6 @@
       <SettingRow label={t("settings.maskSensitive")} hint={t("settings.maskSensitiveHint")}>
         {#snippet control()}<Toggle bind:checked={draft.mask_sensitive} />{/snippet}
       </SettingRow>
-      <SettingRow label={t("settings.enableImageOcr")} hint={t("settings.enableImageOcrHint")}>
-        {#snippet control()}<Toggle bind:checked={draft.enable_image_ocr} />{/snippet}
-      </SettingRow>
-      {#if draft.enable_image_ocr}
-        <button type="button" class="btn-block" onclick={backfillOcr}>{t("settings.ocrBackfill")}</button>
-        <p class="field-hint">{t("settings.ocrBackfillHint")}</p>
-      {/if}
       <div class="field-block">
         <span class="field-label">{t("settings.appFilterMode")}</span>
         <Select bind:value={draft.app_filter_mode} options={filterOptions} />

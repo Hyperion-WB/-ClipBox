@@ -13,7 +13,6 @@ export interface ClipItem {
   source_app: string | null;
   created_at: string;
   last_used_at: string;
-  has_ocr: boolean;
 }
 
 export interface Snippet {
@@ -57,7 +56,6 @@ export interface AppSettings {
   image_max_dimension: number;
   image_jpeg_quality: number;
   image_compress_min_kb: number;
-  enable_image_ocr: boolean;
   mask_sensitive: boolean;
 }
 
